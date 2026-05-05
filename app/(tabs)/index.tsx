@@ -1,18 +1,13 @@
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
   Dimensions,
   Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
-import {
-  router,
-  useLocalSearchParams,
-  useFocusEffect,
-} from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
   DAYS,
@@ -21,8 +16,8 @@ import {
   getWeekDates,
 } from "../../utils/date";
 
-import type { EventItem, EventsByWeek } from "../../utils/events";
-import { loadEvents, saveEvents } from "../../utils/storage";
+import type { EventItem } from "../../utils/events";
+import { loadEvents } from "../../utils/storage";
 
 const HOUR_HEIGHT = 70;
 const TIME_COLUMN_WIDTH = 44;
@@ -51,19 +46,8 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       refreshEvents();
-    }, [weekKey])
+    }, [weekKey]),
   );
-
-  const deleteEvent = async (id: string) => {
-    const allEvents = await loadEvents();
-
-    if (allEvents[weekKey]) {
-      delete allEvents[weekKey][id];
-    }
-
-    await saveEvents(allEvents);
-    refreshEvents();
-  };
 
   return (
     <View style={styles.container}>
@@ -98,7 +82,7 @@ export default function HomeScreen() {
 
           {events.map((event) => {
             const eventDateIndex = weekDates.findIndex(
-              (date) => formatDate(date) === event.date
+              (date) => formatDate(date) === event.date,
             );
 
             if (eventDateIndex === -1) {
@@ -111,7 +95,15 @@ export default function HomeScreen() {
             return (
               <Pressable
                 key={event.id}
-                onPress={() => deleteEvent(event.id)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/edit",
+                    params: {
+                      id: event.id,
+                      week: weekKey,
+                    },
+                  })
+                }
                 style={[
                   styles.eventBlock,
                   {
@@ -147,10 +139,7 @@ export default function HomeScreen() {
       >
         <Text style={styles.buttonText}>달력</Text>
       </Pressable>
-      <Pressable
-        style={styles.labelBtn}
-        onPress={() => router.push("/labels")}
->
+      <Pressable style={styles.labelBtn} onPress={() => router.push("/labels")}>
         <Text style={styles.buttonText}>라벨</Text>
       </Pressable>
     </View>
@@ -198,12 +187,12 @@ const styles = StyleSheet.create({
   },
 
   hourText: {
-  position: "absolute",   // ⭐ 추가
-  left: 0,
-  width: TIME_COLUMN_WIDTH,
-  textAlign: "center",
-  fontSize: 12,
-  color: "#333333",
+    position: "absolute", // ⭐ 추가
+    left: 0,
+    width: TIME_COLUMN_WIDTH,
+    textAlign: "center",
+    fontSize: 12,
+    color: "#333333",
   },
 
   eventBlock: {
