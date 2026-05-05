@@ -1,144 +1,108 @@
-import { getWeekKey } from "./date";
-import type { EventItem } from "./events";
-import { loadEvents, saveEvents } from "./storage";
+import { generateId } from "@/utils/uuid";
+import { and, eq, gte, gt, lt, ne } from "drizzle-orm";
+import dayjs from "dayjs";
 
-type EventInput = {
-  title: string;
-  date: string;
-  startHour: number;
-  startMinute: number;
-  endHour: number;
-  endMinute: number;
-  labelId: string | null;
-};
+import { db } from "@/database";
+import { events } from "@/database/schema";
+import { pushChanges } from "@/services/syncEngine";
+import { toUtcMs } from "@/utils/datetime";
+import { getCurrentUserId } from "@/utils/storage";
+import type { EventFormInput } from "@/utils/events";
 
-function getTotalMinutes(hour: number, minute: number) {
-  return hour * 60 + minute;
+// Returns true if the given slot overlaps any existing (non-deleted) event on that day.
+// Pass excludeId when editing to skip the event being modified.
+async function hasOverlap(
+  input: EventFormInput,
+  userId: string,
+  excludeId?: string,
+): Promise<boolean> {
+  const { date, startHour, startMinute, endHour, endMinute } = input;
+  const startUtc = toUtcMs(date, startHour, startMinute);
+  const endUtc   = toUtcMs(date, endHour, endMinute);
+  const dayStart = dayjs(date).startOf("day").valueOf();
+  const dayEnd   = dayjs(date).endOf("day").valueOf();
+
+  const candidates = await db.select().from(events).where(
+    and(
+      gte(events.startTime, dayStart),
+      lt(events.startTime, dayEnd),
+      lt(events.startTime, endUtc),
+      gt(events.endTime, startUtc),
+      eq(events.userId, userId),
+      ne(events.syncStatus, "pending_delete"),
+    ),
+  );
+
+  return candidates.some((e) => e.id !== excludeId);
 }
 
-export function isValidEventTime(input: EventInput) {
-  const startTotal = getTotalMinutes(input.startHour, input.startMinute);
-  const endTotal = getTotalMinutes(input.endHour, input.endMinute);
+// Flow A — optimistic write to local DB, then background sync to Supabase.
+// Returns false if validation fails (empty title, bad times, overlap).
+export async function createEvent(input: EventFormInput): Promise<boolean> {
+  const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule } = input;
 
-  return endTotal > startTotal;
-}
+  if (!title.trim()) return false;
 
-export async function hasEventOverlap(
-  input: EventInput,
-  ignoreEventId?: string,
-) {
-  const allEvents = await loadEvents();
-  const weekKey = getWeekKey(input.date);
-  const weekEvents = allEvents[weekKey] || {};
+  const startUtc = toUtcMs(date, startHour, startMinute);
+  const endUtc   = toUtcMs(date, endHour, endMinute);
+  if (endUtc <= startUtc) return false;
 
-  const startTotal = getTotalMinutes(input.startHour, input.startMinute);
-  const endTotal = getTotalMinutes(input.endHour, input.endMinute);
+  const userId = await getCurrentUserId();
+  if (await hasOverlap(input, userId)) return false;
 
-  return Object.values(weekEvents).some((event) => {
-    if (ignoreEventId && event.id === ignoreEventId) return false;
-    if (event.date !== input.date) return false;
-
-    const existingStart = getTotalMinutes(event.startHour, event.startMinute);
-    const existingEnd = getTotalMinutes(event.endHour, event.endMinute);
-
-    return startTotal < existingEnd && endTotal > existingStart;
+  await db.insert(events).values({
+    id:         generateId(),
+    userId,
+    title:      title.trim(),
+    startTime:  startUtc,
+    endTime:    endUtc,
+    isAllDay:       false,
+    labelId,
+    recurrenceRule: recurrenceRule ?? null,
+    syncStatus:     "pending_create",
+    updatedAt:  Date.now(),
   });
-}
 
-export async function createEvent(input: EventInput) {
-  if (!input.title.trim()) return false;
-  if (!isValidEventTime(input)) return false;
-
-  const hasOverlap = await hasEventOverlap(input);
-
-  if (hasOverlap) {
-    console.log("이미 같은 시간대에 일정이 있습니다.");
-    return false;
-  }
-
-  const allEvents = await loadEvents();
-
-  const id = Date.now().toString();
-  const weekKey = getWeekKey(input.date);
-
-  const newEvent: EventItem = {
-    id,
-    title: input.title.trim(),
-    date: input.date,
-    startHour: input.startHour,
-    startMinute: input.startMinute,
-    endHour: input.endHour,
-    endMinute: input.endMinute,
-    labelId: input.labelId,
-  };
-
-  if (!allEvents[weekKey]) {
-    allEvents[weekKey] = {};
-  }
-
-  allEvents[weekKey][id] = newEvent;
-
-  await saveEvents(allEvents);
-
+  pushChanges();
   return true;
 }
 
 export async function updateEvent(
-  eventId: string,
-  originalWeekKey: string,
-  input: EventInput,
-) {
-  if (!input.title.trim()) return false;
-  if (!isValidEventTime(input)) return false;
+  id: string,
+  input: EventFormInput,
+): Promise<boolean> {
+  const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule } = input;
 
-  const hasOverlap = await hasEventOverlap(input, eventId);
+  if (!title.trim()) return false;
 
-  if (hasOverlap) {
-    console.log("이미 같은 시간대에 일정이 있습니다.");
-    return false;
-  }
+  const startUtc = toUtcMs(date, startHour, startMinute);
+  const endUtc   = toUtcMs(date, endHour, endMinute);
+  if (endUtc <= startUtc) return false;
 
-  const allEvents = await loadEvents();
-  const originalEvent = allEvents[originalWeekKey]?.[eventId];
+  const userId = await getCurrentUserId();
+  if (await hasOverlap(input, userId, id)) return false;
 
-  if (!originalEvent) return false;
+  await db.update(events).set({
+    title:      title.trim(),
+    startTime:  startUtc,
+    endTime:    endUtc,
+    labelId,
+    recurrenceRule: recurrenceRule ?? null,
+    syncStatus:     "pending_update",
+    updatedAt:  Date.now(),
+  }).where(and(eq(events.id, id), eq(events.userId, userId)));
 
-  const nextWeekKey = getWeekKey(input.date);
-
-  const nextEvent: EventItem = {
-    ...originalEvent,
-    title: input.title.trim(),
-    date: input.date,
-    startHour: input.startHour,
-    startMinute: input.startMinute,
-    endHour: input.endHour,
-    endMinute: input.endMinute,
-    labelId: input.labelId,
-  };
-
-  if (allEvents[originalWeekKey]) {
-    delete allEvents[originalWeekKey][eventId];
-  }
-
-  if (!allEvents[nextWeekKey]) {
-    allEvents[nextWeekKey] = {};
-  }
-
-  allEvents[nextWeekKey][eventId] = nextEvent;
-
-  await saveEvents(allEvents);
-
+  pushChanges();
   return true;
 }
 
-export async function deleteEvent(eventId: string, originalWeekKey: string) {
-  const allEvents = await loadEvents();
+// Soft delete — sync engine will hard-delete from Supabase then remove locally.
+export async function deleteEvent(id: string): Promise<void> {
+  const userId = await getCurrentUserId();
+  await db.update(events).set({
+    syncStatus: "pending_delete",
+    updatedAt:  Date.now(),
+  }).where(and(eq(events.id, id), eq(events.userId, userId)));
 
-  if (allEvents[originalWeekKey]) {
-    delete allEvents[originalWeekKey][eventId];
-  }
-
-  await saveEvents(allEvents);
-
-  return true;
+  pushChanges();
 }
