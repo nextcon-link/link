@@ -1,98 +1,248 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Dimensions,
+  Pressable,
+} from "react-native";
+import {
+  router,
+  useLocalSearchParams,
+  useFocusEffect,
+} from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import {
+  DAYS,
+  formatDate,
+  getCurrentWeekKey,
+  getWeekDates,
+} from "../../utils/date";
+
+import type { EventItem, EventsByWeek } from "../../utils/events";
+import { loadEvents, saveEvents } from "../../utils/storage";
+
+const HOUR_HEIGHT = 70;
+const TIME_COLUMN_WIDTH = 44;
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
+const DAY_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH - 24) / 7;
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const { week } = useLocalSearchParams();
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const weekKey = week ? String(week) : getCurrentWeekKey();
+  const weekDates = getWeekDates(weekKey);
+
+  const baseDate = weekDates[0];
+
+  const [events, setEvents] = useState<EventItem[]>([]);
+
+  const refreshEvents = async () => {
+    const allEvents = await loadEvents();
+
+    const currentWeekEvents = allEvents[weekKey] || {};
+
+    setEvents(Object.values(currentWeekEvents));
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshEvents();
+    }, [weekKey])
+  );
+
+  const deleteEvent = async (id: string) => {
+    const allEvents = await loadEvents();
+
+    if (allEvents[weekKey]) {
+      delete allEvents[weekKey][id];
+    }
+
+    await saveEvents(allEvents);
+    refreshEvents();
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>
+        {baseDate.getFullYear()}년 {baseDate.getMonth() + 1}월
+      </Text>
+
+      <View style={styles.headerRow}>
+        <View style={{ width: TIME_COLUMN_WIDTH }} />
+
+        {DAYS.map((day, i) => (
+          <View key={day} style={styles.dayHeader}>
+            <Text>{day}</Text>
+            <Text style={styles.dateText}>{weekDates[i].getDate()}</Text>
+          </View>
+        ))}
+      </View>
+
+      <ScrollView>
+        <View style={styles.grid}>
+          {Array.from({ length: 25 }).map((_, i) => (
+            <React.Fragment key={i}>
+              <View style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
+
+              {i < 24 && (
+                <Text style={[styles.hourText, { top: i * HOUR_HEIGHT + 4 }]}>
+                  {i.toString().padStart(2, "0")}
+                </Text>
+              )}
+            </React.Fragment>
+          ))}
+
+          {events.map((event) => {
+            const eventDateIndex = weekDates.findIndex(
+              (date) => formatDate(date) === event.date
+            );
+
+            if (eventDateIndex === -1) {
+              return null;
+            }
+
+            const start = event.startHour + event.startMinute / 60;
+            const end = event.endHour + event.endMinute / 60;
+
+            return (
+              <Pressable
+                key={event.id}
+                onPress={() => deleteEvent(event.id)}
+                style={[
+                  styles.eventBlock,
+                  {
+                    top: start * HOUR_HEIGHT,
+                    height: (end - start) * HOUR_HEIGHT,
+                    left: TIME_COLUMN_WIDTH + eventDateIndex * DAY_WIDTH,
+                    width: DAY_WIDTH,
+                  },
+                ]}
+              >
+                <Text style={styles.eventText}>{event.title}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      <Pressable
+        style={styles.fab}
+        onPress={() =>
+          router.push({
+            pathname: "/add",
+            params: { week: weekKey },
+          })
+        }
+      >
+        <Text style={styles.buttonText}>+</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.calendarBtn}
+        onPress={() => router.push("/calendar")}
+      >
+        <Text style={styles.buttonText}>달력</Text>
+      </Pressable>
+      <Pressable
+        style={styles.labelBtn}
+        onPress={() => router.push("/labels")}
+>
+        <Text style={styles.buttonText}>라벨</Text>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    paddingTop: 50,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+
+  title: {
+    fontSize: 22,
+    textAlign: "center",
+    marginBottom: 10,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
+
+  headerRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+  },
+
+  dayHeader: {
+    width: DAY_WIDTH,
+    alignItems: "center",
+  },
+
+  dateText: {
+    fontSize: 12,
+  },
+
+  grid: {
+    height: 24 * HOUR_HEIGHT,
+    position: "relative",
+  },
+
+  hourLine: {
+    position: "absolute",
     left: 0,
-    position: 'absolute',
+    right: 0,
+    height: 1,
+    backgroundColor: "#DDDDDD",
+  },
+
+  hourText: {
+  position: "absolute",   // ⭐ 추가
+  left: 0,
+  width: TIME_COLUMN_WIDTH,
+  textAlign: "center",
+  fontSize: 12,
+  color: "#333333",
+  },
+
+  eventBlock: {
+    position: "absolute",
+    backgroundColor: "#4A90E2",
+    padding: 4,
+    borderRadius: 4,
+  },
+
+  eventText: {
+    color: "white",
+    fontSize: 12,
+  },
+
+  fab: {
+    position: "absolute",
+    bottom: 30,
+    right: 20,
+    backgroundColor: "black",
+    padding: 15,
+    borderRadius: 50,
+  },
+
+  calendarBtn: {
+    position: "absolute",
+    bottom: 30,
+    left: 20,
+    backgroundColor: "black",
+    padding: 10,
+  },
+  labelBtn: {
+    position: "absolute",
+    bottom: 30,
+    left: 75,
+    backgroundColor: "black",
+    padding: 10,
+  },
+
+  buttonText: {
+    color: "white",
   },
 });
