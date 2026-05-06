@@ -1,4 +1,3 @@
-import { useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   Pressable,
@@ -8,68 +7,80 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Stack, useFocusEffect } from "expo-router";
+import { and, eq, ne } from "drizzle-orm";
 
-import { DAYS, formatDate } from "../utils/date";
-import type { LabelItem } from "../utils/events";
-import { loadLabels } from "../utils/storage";
+import { DAYS, formatDate } from "@/utils/date";
+import { db } from "@/database";
+import { labels } from "@/database/schema";
+import type { Label } from "@/database/schema";
+import type { EventFormInput } from "@/utils/events";
+import { useAuthStore } from "@/store/auth";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = [0, 10, 20, 30, 40, 50];
 
-export type EventFormValue = {
-  title: string;
-  date: string;
-  startHour: number;
-  startMinute: number;
-  endHour: number;
-  endMinute: number;
-  labelId: string | null;
-};
+type RecurrenceOption = { label: string; rule: string | null };
+const RECURRENCE_OPTIONS: RecurrenceOption[] = [
+  { label: "없음",   rule: null },
+  { label: "매일",   rule: "FREQ=DAILY" },
+  { label: "매주",   rule: "FREQ=WEEKLY" },
+  { label: "매월",   rule: "FREQ=MONTHLY" },
+  { label: "매년",   rule: "FREQ=YEARLY" },
+];
 
-type EventFormProps = {
+type Props = {
   mode: "add" | "edit";
-  titleText: string;
   weekDates: Date[];
-  initialValue: EventFormValue;
-  onSubmit: (value: EventFormValue) => void | Promise<void>;
-  onDelete?: () => void | Promise<void>;
+  initialValue: EventFormInput;
+  onSubmit: (input: EventFormInput) => Promise<void>;
+  onDelete?: () => Promise<void>;
 };
 
 export default function EventForm({
   mode,
-  titleText,
   weekDates,
   initialValue,
   onSubmit,
   onDelete,
-}: EventFormProps) {
+}: Props) {
+  const userId = useAuthStore((state) => state.user?.id ?? "");
   const [title, setTitle] = useState(initialValue.title);
   const [selectedDate, setSelectedDate] = useState(initialValue.date);
-
   const [startHour, setStartHour] = useState(initialValue.startHour);
   const [startMinute, setStartMinute] = useState(initialValue.startMinute);
   const [endHour, setEndHour] = useState(initialValue.endHour);
   const [endMinute, setEndMinute] = useState(initialValue.endMinute);
-
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(
     initialValue.labelId,
   );
+  const [recurrenceRule, setRecurrenceRule] = useState<string | null>(
+    initialValue.recurrenceRule,
+  );
+  const [dbLabels, setDbLabels] = useState<Label[]>([]);
 
-  const [labels, setLabels] = useState<LabelItem[]>([]);
+  const refreshLabels = useCallback(async () => {
+    if (!userId) {
+      setDbLabels([]);
+      return;
+    }
 
-  const refreshLabels = async () => {
-    const labelsById = await loadLabels();
-    setLabels(Object.values(labelsById));
-  };
+    const rows = await db
+      .select()
+      .from(labels)
+      .where(and(eq(labels.userId, userId), ne(labels.syncStatus, "pending_delete")))
+      .orderBy(labels.name);
+    setDbLabels(rows);
+  }, [userId]);
 
   useFocusEffect(
     useCallback(() => {
       refreshLabels();
-    }, []),
+    }, [refreshLabels]),
   );
 
-  const submit = () => {
-    onSubmit({
+  const handleSubmit = async () => {
+    await onSubmit({
       title,
       date: selectedDate,
       startHour,
@@ -77,178 +88,194 @@ export default function EventForm({
       endHour,
       endMinute,
       labelId: selectedLabelId,
+      recurrenceRule,
     });
   };
 
-  return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>{titleText}</Text>
+  const headerTitle = mode === "add" ? "일정 추가" : "일정 편집";
+  const headerRightLabel = mode === "add" ? "추가" : "적용";
 
-      <Text style={styles.label}>일정 이름</Text>
-      <TextInput
-        style={styles.input}
-        value={title}
-        onChangeText={setTitle}
-        placeholder="예: 자료구조"
-        placeholderTextColor="#999"
+  return (
+    <>
+      <Stack.Screen
+        options={{
+          title: headerTitle,
+          presentation: "modal",
+          headerRight: () => (
+            <Pressable onPress={handleSubmit} style={styles.headerBtn}>
+              <Text style={[styles.headerBtnText, styles.headerBtnPrimary]}>
+                {headerRightLabel}
+              </Text>
+            </Pressable>
+          ),
+        }}
       />
 
-      <Text style={styles.label}>라벨 선택</Text>
-      <View style={styles.row}>
-        <Pressable
-          style={[
-            styles.selectButton,
-            selectedLabelId === null && styles.selectedButton,
-          ]}
-          onPress={() => setSelectedLabelId(null)}
-        >
-          <Text
+      <ScrollView style={styles.container}>
+        {/* 이름 */}
+        <Text style={styles.sectionLabel}>일정 이름</Text>
+        <TextInput
+          style={styles.input}
+          value={title}
+          onChangeText={setTitle}
+          placeholder="예: 자료구조"
+          placeholderTextColor="#999"
+        />
+
+        {/* 라벨 */}
+        <Text style={styles.sectionLabel}>라벨</Text>
+        <View style={styles.row}>
+          <Pressable
             style={[
-              styles.selectText,
-              selectedLabelId === null && styles.selectedText,
+              styles.chip,
+              selectedLabelId === null && styles.chipSelected,
             ]}
+            onPress={() => setSelectedLabelId(null)}
           >
-            라벨 없음
-          </Text>
-        </Pressable>
-
-        {labels.map((label) => {
-          const selected = selectedLabelId === label.id;
-
-          return (
-            <Pressable
-              key={label.id}
-              style={[styles.selectButton, selected && styles.selectedButton]}
-              onPress={() => setSelectedLabelId(label.id)}
-            >
-              <Text
-                style={[styles.selectText, selected && styles.selectedText]}
+            <Text style={[styles.chipText, selectedLabelId === null && styles.chipTextSelected]}>
+              없음
+            </Text>
+          </Pressable>
+          {dbLabels.map((lbl) => {
+            const selected = selectedLabelId === lbl.id;
+            return (
+              <Pressable
+                key={lbl.id}
+                style={[styles.chip, selected && styles.chipSelected]}
+                onPress={() => setSelectedLabelId(lbl.id)}
               >
-                {label.name}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+                <View style={[styles.colorDot, { backgroundColor: lbl.color }]} />
+                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                  {lbl.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
-      <Text style={styles.label}>날짜 선택</Text>
-      <View style={styles.row}>
-        {weekDates.map((date, index) => {
-          const dateString = formatDate(date);
-          const selected = selectedDate === dateString;
-
-          return (
-            <Pressable
-              key={dateString}
-              style={[styles.selectButton, selected && styles.selectedButton]}
-              onPress={() => setSelectedDate(dateString)}
-            >
-              <Text
-                style={[styles.selectText, selected && styles.selectedText]}
+        {/* 날짜 */}
+        <Text style={styles.sectionLabel}>날짜</Text>
+        <View style={styles.row}>
+          {weekDates.map((date, index) => {
+            const dateString = formatDate(date);
+            const selected = selectedDate === dateString;
+            return (
+              <Pressable
+                key={dateString}
+                style={[styles.chip, selected && styles.chipSelected]}
+                onPress={() => setSelectedDate(dateString)}
               >
-                {DAYS[index]} {date.getDate()}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                  {DAYS[index]} {date.getDate()}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
-      <Text style={styles.label}>시작 시간</Text>
-      <ScrollView horizontal>
-        {HOURS.map((hour) => {
-          const selected = startHour === hour;
+        {/* 시작 시간 */}
+        <Text style={styles.sectionLabel}>시작</Text>
+        <View style={styles.timeRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {HOURS.map((hour) => {
+              const selected = startHour === hour;
+              return (
+                <Pressable
+                  key={hour}
+                  style={[styles.timeChip, selected && styles.chipSelected]}
+                  onPress={() => setStartHour(hour)}
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {hour}시
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <View style={styles.minuteGroup}>
+            {MINUTES.map((minute) => {
+              const selected = startMinute === minute;
+              return (
+                <Pressable
+                  key={minute}
+                  style={[styles.minuteChip, selected && styles.chipSelected]}
+                  onPress={() => setStartMinute(minute)}
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {minute.toString().padStart(2, "0")}분
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
-          return (
-            <Pressable
-              key={hour}
-              style={[styles.timeButton, selected && styles.selectedButton]}
-              onPress={() => setStartHour(hour)}
-            >
-              <Text
-                style={[styles.selectText, selected && styles.selectedText]}
+        {/* 종료 시간 */}
+        <Text style={styles.sectionLabel}>종료</Text>
+        <View style={styles.timeRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {HOURS.map((hour) => {
+              const selected = endHour === hour;
+              return (
+                <Pressable
+                  key={hour}
+                  style={[styles.timeChip, selected && styles.chipSelected]}
+                  onPress={() => setEndHour(hour)}
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {hour}시
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <View style={styles.minuteGroup}>
+            {MINUTES.map((minute) => {
+              const selected = endMinute === minute;
+              return (
+                <Pressable
+                  key={minute}
+                  style={[styles.minuteChip, selected && styles.chipSelected]}
+                  onPress={() => setEndMinute(minute)}
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {minute.toString().padStart(2, "0")}분
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* 반복 */}
+        <Text style={styles.sectionLabel}>반복</Text>
+        <View style={styles.row}>
+          {RECURRENCE_OPTIONS.map((opt) => {
+            const selected = recurrenceRule === opt.rule;
+            return (
+              <Pressable
+                key={opt.label}
+                style={[styles.chip, selected && styles.chipSelected]}
+                onPress={() => setRecurrenceRule(opt.rule)}
               >
-                {hour}
-              </Text>
-            </Pressable>
-          );
-        })}
+                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* 삭제 (편집 모드만) */}
+        {onDelete && (
+          <Pressable style={styles.deleteButton} onPress={onDelete}>
+            <Text style={styles.deleteButtonText}>일정 삭제</Text>
+          </Pressable>
+        )}
+
+        <View style={{ height: 60 }} />
       </ScrollView>
-
-      <Text style={styles.label}>시작 분</Text>
-      <View style={styles.row}>
-        {MINUTES.map((minute) => {
-          const selected = startMinute === minute;
-
-          return (
-            <Pressable
-              key={minute}
-              style={[styles.minuteButton, selected && styles.selectedButton]}
-              onPress={() => setStartMinute(minute)}
-            >
-              <Text
-                style={[styles.selectText, selected && styles.selectedText]}
-              >
-                {minute.toString().padStart(2, "0")}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={styles.label}>종료 시간</Text>
-      <ScrollView horizontal>
-        {HOURS.map((hour) => {
-          const selected = endHour === hour;
-
-          return (
-            <Pressable
-              key={hour}
-              style={[styles.timeButton, selected && styles.selectedButton]}
-              onPress={() => setEndHour(hour)}
-            >
-              <Text
-                style={[styles.selectText, selected && styles.selectedText]}
-              >
-                {hour}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      <Text style={styles.label}>종료 분</Text>
-      <View style={styles.row}>
-        {MINUTES.map((minute) => {
-          const selected = endMinute === minute;
-
-          return (
-            <Pressable
-              key={minute}
-              style={[styles.minuteButton, selected && styles.selectedButton]}
-              onPress={() => setEndMinute(minute)}
-            >
-              <Text
-                style={[styles.selectText, selected && styles.selectedText]}
-              >
-                {minute.toString().padStart(2, "0")}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Pressable style={styles.saveButton} onPress={submit}>
-        <Text style={styles.saveButtonText}>
-          {mode === "add" ? "저장" : "수정 완료"}
-        </Text>
-      </Pressable>
-
-      {mode === "edit" && onDelete && (
-        <Pressable style={styles.deleteButton} onPress={onDelete}>
-          <Text style={styles.deleteButtonText}>일정 삭제</Text>
-        </Pressable>
-      )}
-    </ScrollView>
+    </>
   );
 }
 
@@ -256,111 +283,107 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    padding: 20,
-    paddingTop: 60,
+    paddingHorizontal: 20,
   },
-
-  title: {
-    fontSize: 26,
-    fontWeight: "bold",
+  headerBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+  },
+  headerBtnText: {
+    fontSize: 16,
+    color: "#666",
+  },
+  headerBtnPrimary: {
+    fontWeight: "700",
     color: "#111",
-    marginBottom: 20,
   },
-
-  label: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#333",
-    marginTop: 18,
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#888",
+    marginTop: 20,
     marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-
   input: {
     borderWidth: 1,
-    borderColor: "#CCC",
+    borderColor: "#DDD",
     borderRadius: 10,
     padding: 12,
     fontSize: 16,
     color: "#111",
+    backgroundColor: "#FAFAFA",
   },
-
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
-
-  selectButton: {
-    borderWidth: 1,
-    borderColor: "#CCC",
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 6,
-  },
-
-  timeButton: {
-    width: 44,
-    borderWidth: 1,
-    borderColor: "#CCC",
-    borderRadius: 8,
-    paddingVertical: 8,
+  chip: {
+    flexDirection: "row",
     alignItems: "center",
-    marginRight: 8,
-    marginBottom: 6,
-  },
-
-  minuteButton: {
-    width: 56,
+    gap: 5,
     borderWidth: 1,
-    borderColor: "#CCC",
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: "center",
-    marginBottom: 6,
+    borderColor: "#DDD",
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    backgroundColor: "#FAFAFA",
   },
-
-  selectedButton: {
+  chipSelected: {
     backgroundColor: "#111",
     borderColor: "#111",
   },
-
-  selectText: {
-    color: "#111",
+  chipText: {
     fontSize: 14,
+    color: "#333",
   },
-
-  selectedText: {
+  chipTextSelected: {
     color: "#FFF",
-    fontWeight: "bold",
+    fontWeight: "600",
   },
-
-  saveButton: {
-    marginTop: 30,
-    backgroundColor: "#111",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
+  colorDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
   },
-
-  saveButtonText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "bold",
+  timeRow: {
+    gap: 8,
   },
-
+  timeChip: {
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    marginRight: 6,
+    backgroundColor: "#FAFAFA",
+  },
+  minuteGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6,
+  },
+  minuteChip: {
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    backgroundColor: "#FAFAFA",
+  },
   deleteButton: {
-    marginTop: 14,
-    marginBottom: 80,
+    marginTop: 32,
     backgroundColor: "#D9534F",
-    padding: 16,
+    padding: 15,
     borderRadius: 12,
     alignItems: "center",
   },
-
   deleteButtonText: {
     color: "#FFF",
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "600",
   },
 });

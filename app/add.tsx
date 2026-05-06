@@ -5,14 +5,12 @@ import { createEvent } from "../utils/eventService";
 
 export default function AddScreen() {
   const { week } = useLocalSearchParams();
-
   const weekKey = week ? String(week) : getCurrentWeekKey();
   const weekDates = getWeekDates(weekKey);
 
   return (
     <EventForm
       mode="add"
-      titleText="일정 추가"
       weekDates={weekDates}
       initialValue={{
         title: "",
@@ -22,13 +20,11 @@ export default function AddScreen() {
         endHour: 11,
         endMinute: 0,
         labelId: null,
+        recurrenceRule: null,
       }}
       onSubmit={async (input) => {
         const ok = await createEvent(input);
-
-        if (ok) {
-          router.back();
-        }
+        if (ok) router.back();
       }}
     />
   );

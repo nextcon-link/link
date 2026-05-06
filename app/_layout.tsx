@@ -1,9 +1,13 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { syncAll } from '@/services/syncEngine';
+import { useAuthStore } from '@/store/auth';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -11,12 +15,53 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+  const segments = useSegments();
+  const initialize = useAuthStore((state) => state.initialize);
+  const session = useAuthStore((state) => state.session);
+  const isInitialized = useAuthStore((state) => state.isInitialized);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    const currentRoot = segments[0];
+    const isAuthRoute = currentRoot === 'login' || currentRoot === 'signup';
+
+    if (!session && !isAuthRoute) {
+      router.replace('/login');
+      return;
+    }
+
+    if (session && isAuthRoute) {
+      router.replace('/');
+    }
+  }, [isInitialized, router, segments, session]);
+
+  useEffect(() => {
+    if (session) {
+      syncAll();
+    }
+  }, [session]);
+
+  if (!isInitialized) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="signup" options={{ headerShown: false }} />
+        <Stack.Screen name="modal"  options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>

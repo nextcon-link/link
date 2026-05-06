@@ -1,5 +1,5 @@
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useState } from "react";
+import { router, useLocalSearchParams, type Href } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
   Pressable,
@@ -8,46 +8,73 @@ import {
   Text,
   View,
 } from "react-native";
+import { useLiveQuery } from "drizzle-orm/expo-sqlite";
+import { and, eq, gte, lte, ne } from "drizzle-orm";
+import dayjs from "dayjs";
 
-import {
-  DAYS,
-  formatDate,
-  getCurrentWeekKey,
-  getWeekDates,
-} from "../../utils/date";
-
-import type { EventItem } from "../../utils/events";
-import { loadEvents } from "../../utils/storage";
+import { DAYS, formatDate, getCurrentWeekKey, getWeekDates } from "@/utils/date";
+import { db } from "@/database";
+import { events, labels } from "@/database/schema";
+import { getMergedEvents, type MergedEvent, type EventWithLabel } from "@/services/deviceSync";
+import { useAuthStore } from "@/store/auth";
 
 const HOUR_HEIGHT = 70;
 const TIME_COLUMN_WIDTH = 44;
-
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const DAY_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH - 24) / 7;
 
 export default function HomeScreen() {
+  const userId = useAuthStore((state) => state.user?.id ?? "");
   const { week } = useLocalSearchParams();
-
   const weekKey = week ? String(week) : getCurrentWeekKey();
-  const weekDates = getWeekDates(weekKey);
-
+  const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
   const baseDate = weekDates[0];
 
-  const [events, setEvents] = useState<EventItem[]>([]);
+  const weekStart = dayjs(weekDates[0]).startOf("day").valueOf();
+  const weekEnd   = dayjs(weekDates[6]).endOf("day").valueOf();
 
-  const refreshEvents = async () => {
-    const allEvents = await loadEvents();
-
-    const currentWeekEvents = allEvents[weekKey] || {};
-
-    setEvents(Object.values(currentWeekEvents));
-  };
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshEvents();
-    }, [weekKey]),
+  // Reactive query: events LEFT JOIN labels, filtered by week + not deleted
+  const { data: rows = [] } = useLiveQuery(
+    db
+      .select({
+        event: events,
+        label: labels,
+      })
+      .from(events)
+      .leftJoin(
+        labels,
+        and(eq(events.labelId, labels.id), eq(labels.userId, userId)),
+      )
+      .where(
+        and(
+          eq(events.userId, userId),
+          gte(events.startTime, weekStart),
+          lte(events.startTime, weekEnd),
+          ne(events.syncStatus, "pending_delete"),
+        ),
+      ),
+    [weekStart, weekEnd, userId],
   );
+
+  const localEvents: EventWithLabel[] = useMemo(
+    () =>
+      rows
+        .filter((row) => !row.label || row.label.isVisible)
+        .map((row) => ({
+          ...row.event,
+          label: row.label ?? null,
+        })),
+    [rows],
+  );
+
+  const [mergedEvents, setMergedEvents] = useState<MergedEvent[]>([]);
+
+  // Flow C — merge device calendar events in memory whenever local events change
+  useEffect(() => {
+    getMergedEvents(localEvents, weekDates[0], weekDates[6]).then(
+      setMergedEvents,
+    );
+  }, [localEvents, weekDates]);
 
   return (
     <View style={styles.container}>
@@ -57,7 +84,6 @@ export default function HomeScreen() {
 
       <View style={styles.headerRow}>
         <View style={{ width: TIME_COLUMN_WIDTH }} />
-
         {DAYS.map((day, i) => (
           <View key={day} style={styles.dayHeader}>
             <Text>{day}</Text>
@@ -71,7 +97,6 @@ export default function HomeScreen() {
           {Array.from({ length: 25 }).map((_, i) => (
             <React.Fragment key={i}>
               <View style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
-
               {i < 24 && (
                 <Text style={[styles.hourText, { top: i * HOUR_HEIGHT + 4 }]}>
                   {i.toString().padStart(2, "0")}
@@ -80,41 +105,43 @@ export default function HomeScreen() {
             </React.Fragment>
           ))}
 
-          {events.map((event) => {
+          {mergedEvents.map((event) => {
+            const startD = dayjs(event.startTime);
+            const endD   = dayjs(event.endTime);
+            const eventDate = startD.format("YYYY-MM-DD");
             const eventDateIndex = weekDates.findIndex(
-              (date) => formatDate(date) === event.date,
+              (d) => formatDate(d) === eventDate,
             );
+            if (eventDateIndex === -1) return null;
 
-            if (eventDateIndex === -1) {
-              return null;
-            }
-
-            const start = event.startHour + event.startMinute / 60;
-            const end = event.endHour + event.endMinute / 60;
+            const start = startD.hour() + startD.minute() / 60;
+            const end   = endD.hour()   + endD.minute()   / 60;
 
             return (
               <Pressable
                 key={event.id}
-                onPress={() =>
+                onPress={() => {
+                  if (event.source === "device") return;
                   router.push({
                     pathname: "/edit",
-                    params: {
-                      id: event.id,
-                      week: weekKey,
-                    },
-                  })
-                }
+                    params: { id: event.id, week: weekKey },
+                  });
+                }}
                 style={[
                   styles.eventBlock,
                   {
+                    backgroundColor: event.labelColor,
                     top: start * HOUR_HEIGHT,
-                    height: (end - start) * HOUR_HEIGHT,
+                    height: Math.max((end - start) * HOUR_HEIGHT, 20),
                     left: TIME_COLUMN_WIDTH + eventDateIndex * DAY_WIDTH,
                     width: DAY_WIDTH,
+                    opacity: event.source === "device" ? 0.7 : 1,
                   },
                 ]}
               >
-                <Text style={styles.eventText}>{event.title}</Text>
+                <Text style={styles.eventText} numberOfLines={2}>
+                  {event.title}
+                </Text>
               </Pressable>
             );
           })}
@@ -124,10 +151,7 @@ export default function HomeScreen() {
       <Pressable
         style={styles.fab}
         onPress={() =>
-          router.push({
-            pathname: "/add",
-            params: { week: weekKey },
-          })
+          router.push({ pathname: "/add", params: { week: weekKey } })
         }
       >
         <Text style={styles.buttonText}>+</Text>
@@ -139,8 +163,17 @@ export default function HomeScreen() {
       >
         <Text style={styles.buttonText}>달력</Text>
       </Pressable>
-      <Pressable style={styles.labelBtn} onPress={() => router.push("/labels")}>
+      <Pressable
+        style={styles.labelBtn}
+        onPress={() => router.push("/labels")}
+      >
         <Text style={styles.buttonText}>라벨</Text>
+      </Pressable>
+      <Pressable
+        style={styles.friendBtn}
+        onPress={() => router.push("/friends" as Href)}
+      >
+        <Text style={styles.buttonText}>친구</Text>
       </Pressable>
     </View>
   );
@@ -152,32 +185,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     paddingTop: 50,
   },
-
   title: {
     fontSize: 22,
     textAlign: "center",
     marginBottom: 10,
   },
-
   headerRow: {
     flexDirection: "row",
     marginBottom: 4,
   },
-
   dayHeader: {
     width: DAY_WIDTH,
     alignItems: "center",
   },
-
   dateText: {
     fontSize: 12,
   },
-
   grid: {
     height: 24 * HOUR_HEIGHT,
     position: "relative",
   },
-
   hourLine: {
     position: "absolute",
     left: 0,
@@ -185,28 +212,24 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#DDDDDD",
   },
-
   hourText: {
-    position: "absolute", // ⭐ 추가
+    position: "absolute",
     left: 0,
     width: TIME_COLUMN_WIDTH,
     textAlign: "center",
     fontSize: 12,
     color: "#333333",
   },
-
   eventBlock: {
     position: "absolute",
-    backgroundColor: "#4A90E2",
     padding: 4,
     borderRadius: 4,
   },
-
   eventText: {
     color: "white",
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: "600",
   },
-
   fab: {
     position: "absolute",
     bottom: 30,
@@ -215,7 +238,6 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 50,
   },
-
   calendarBtn: {
     position: "absolute",
     bottom: 30,
@@ -230,7 +252,13 @@ const styles = StyleSheet.create({
     backgroundColor: "black",
     padding: 10,
   },
-
+  friendBtn: {
+    position: "absolute",
+    bottom: 30,
+    left: 130,
+    backgroundColor: "black",
+    padding: 10,
+  },
   buttonText: {
     color: "white",
   },
