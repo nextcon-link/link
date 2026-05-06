@@ -1,90 +1,84 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
-  View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
-  Pressable,
-  StyleSheet,
-  ScrollView,
+  View,
 } from "react-native";
+import { Stack } from "expo-router";
+import { useLiveQuery } from "drizzle-orm/expo-sqlite";
+import { and, eq, ne } from "drizzle-orm";
 
-import type { LabelItem, LabelType } from "../utils/events";
+import { db } from "@/database";
+import { labels } from "@/database/schema";
+import { useAuthStore } from "@/store/auth";
 import {
-  loadLabels,
-  saveLabels,
-  loadEvents,
-  saveEvents,
-} from "../utils/storage";
+  createLabel,
+  updateLabel,
+  deleteLabel,
+  toggleLabelVisibility,
+} from "@/utils/labelService";
 
-const LABEL_TYPES: { type: LabelType; text: string }[] = [
-  { type: "normal", text: "기본" },
-  { type: "blind", text: "블라인드" },
-  { type: "private", text: "비공개" },
+const PRESET_COLORS = [
+  "#4A90E2", // 파랑
+  "#E24A4A", // 빨강
+  "#4AE27A", // 초록
+  "#E2C74A", // 노랑
+  "#9B4AE2", // 보라
+  "#E2874A", // 주황
 ];
 
 export default function LabelsScreen() {
-  const [labels, setLabels] = useState<LabelItem[]>([]);
+  const userId = useAuthStore((state) => state.user?.id ?? "");
   const [name, setName] = useState("");
-  const [selectedType, setSelectedType] = useState<LabelType>("normal");
+  const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState(PRESET_COLORS[0]);
 
-  const refreshLabels = async () => {
-    const labelsById = await loadLabels();
-    setLabels(Object.values(labelsById));
-  };
+  const { data: labelList = [] } = useLiveQuery(
+    db
+      .select()
+      .from(labels)
+      .where(and(eq(labels.userId, userId), ne(labels.syncStatus, "pending_delete")))
+      .orderBy(labels.name),
+    [userId],
+  );
 
-  useEffect(() => {
-    refreshLabels();
-  }, []);
-
-  const createLabel = async () => {
+  const handleCreate = async () => {
     if (!name.trim()) return;
-
-    const id = Date.now().toString();
-
-    const newLabel: LabelItem = {
-      id,
-      name: name.trim(),
-      type: selectedType,
-    };
-
-    const labelsById = await loadLabels();
-    labelsById[id] = newLabel;
-
-    await saveLabels(labelsById);
-
+    await createLabel({ name, color });
     setName("");
-    setSelectedType("normal");
-
-    const nextLabelsById = await loadLabels();
-    setLabels(Object.values(nextLabelsById));
+    setColor(PRESET_COLORS[0]);
   };
 
-  const deleteLabel = async (id: string) => {
-    const labelsById = await loadLabels();
-    delete labelsById[id];
-    await saveLabels(labelsById);
+  const startEdit = (id: string, currentName: string, currentColor: string) => {
+    setEditingId(id);
+    setEditName(currentName);
+    setEditColor(currentColor);
+  };
 
-    const eventsByWeek = await loadEvents();
+  const handleUpdate = async () => {
+    if (!editingId || !editName.trim()) return;
+    await updateLabel(editingId, { name: editName, color: editColor });
+    setEditingId(null);
+  };
 
-    Object.values(eventsByWeek).forEach((weekEvents) => {
-      Object.values(weekEvents).forEach((event) => {
-        if (event.labelId === id) {
-          event.labelId = null;
-        }
-      });
-    });
-
-    await saveEvents(eventsByWeek);
-
-    const nextLabelsById = await loadLabels();
-    setLabels(Object.values(nextLabelsById));
+  const handleDelete = async (id: string) => {
+    await deleteLabel(id);
+    if (editingId === id) setEditingId(null);
   };
 
   return (
+    <>
+      <Stack.Screen options={{ title: "라벨 관리" }} />
     <ScrollView style={styles.container}>
       <Text style={styles.title}>라벨 관리</Text>
 
-      <Text style={styles.label}>라벨 이름</Text>
+      {/* ── 라벨 추가 폼 ───────────────────────────────── */}
+      <Text style={styles.sectionLabel}>새 라벨</Text>
       <TextInput
         style={styles.input}
         value={name}
@@ -92,48 +86,95 @@ export default function LabelsScreen() {
         placeholder="예: 수업, 개인, 동아리"
         placeholderTextColor="#999"
       />
-
-      <Text style={styles.label}>라벨 타입</Text>
-      <View style={styles.row}>
-        {LABEL_TYPES.map((item) => {
-          const selected = selectedType === item.type;
-
-          return (
-            <Pressable
-              key={item.type}
-              style={[styles.typeButton, selected && styles.selectedButton]}
-              onPress={() => setSelectedType(item.type)}
-            >
-              <Text style={[styles.typeText, selected && styles.selectedText]}>
-                {item.text}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <Text style={styles.sectionLabel}>색상 선택</Text>
+      <View style={styles.colorRow}>
+        {PRESET_COLORS.map((c) => (
+          <Pressable
+            key={c}
+            style={[
+              styles.colorSwatch,
+              { backgroundColor: c },
+              color === c && styles.colorSwatchSelected,
+            ]}
+            onPress={() => setColor(c)}
+          />
+        ))}
       </View>
-
-      <Pressable style={styles.createButton} onPress={createLabel}>
+      <Pressable style={styles.createButton} onPress={handleCreate}>
         <Text style={styles.createButtonText}>라벨 만들기</Text>
       </Pressable>
 
+      {/* ── 라벨 목록 ──────────────────────────────────── */}
       <Text style={styles.sectionTitle}>내 라벨</Text>
 
-      {labels.map((label) => (
-        <View key={label.id} style={styles.labelItem}>
-          <View>
-            <Text style={styles.labelName}>{label.name}</Text>
-            <Text style={styles.labelType}>{label.type}</Text>
+      {labelList.map((lbl) =>
+        editingId === lbl.id ? (
+          // 편집 모드
+          <View key={lbl.id} style={styles.labelItem}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 8 }]}
+              value={editName}
+              onChangeText={setEditName}
+            />
+            <View style={styles.colorRow}>
+              {PRESET_COLORS.map((c) => (
+                <Pressable
+                  key={c}
+                  style={[
+                    styles.colorSwatch,
+                    { backgroundColor: c },
+                    editColor === c && styles.colorSwatchSelected,
+                  ]}
+                  onPress={() => setEditColor(c)}
+                />
+              ))}
+            </View>
+            <View style={styles.editActions}>
+              <Pressable style={styles.saveEditButton} onPress={handleUpdate}>
+                <Text style={styles.saveEditText}>저장</Text>
+              </Pressable>
+              <Pressable
+                style={styles.cancelButton}
+                onPress={() => setEditingId(null)}
+              >
+                <Text style={styles.cancelText}>취소</Text>
+              </Pressable>
+            </View>
           </View>
-
-          <Pressable
-            style={styles.deleteButton}
-            onPress={() => deleteLabel(label.id)}
-          >
-            <Text style={styles.deleteButtonText}>삭제</Text>
-          </Pressable>
-        </View>
-      ))}
+        ) : (
+          // 표시 모드
+          <View key={lbl.id} style={styles.labelItem}>
+            <Pressable
+              style={styles.visibilityBtn}
+              onPress={() => toggleLabelVisibility(lbl.id)}
+            >
+              <Text style={styles.visibilityIcon}>
+                {lbl.isVisible ? "👁" : "🙈"}
+              </Text>
+            </Pressable>
+            <View
+              style={[styles.colorDot, { backgroundColor: lbl.color }]}
+            />
+            <Text style={styles.labelName}>{lbl.name}</Text>
+            <View style={styles.labelActions}>
+              <Pressable
+                style={styles.editButton}
+                onPress={() => startEdit(lbl.id, lbl.name, lbl.color)}
+              >
+                <Text style={styles.editButtonText}>편집</Text>
+              </Pressable>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => handleDelete(lbl.id)}
+              >
+                <Text style={styles.deleteButtonText}>삭제</Text>
+              </Pressable>
+            </View>
+          </View>
+        ),
+      )}
     </ScrollView>
+    </>
   );
 }
 
@@ -144,22 +185,26 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 60,
   },
-
   title: {
     fontSize: 26,
     fontWeight: "bold",
     color: "#111",
     marginBottom: 20,
   },
-
-  label: {
+  sectionLabel: {
     fontSize: 15,
     fontWeight: "bold",
     color: "#333",
-    marginTop: 18,
+    marginTop: 16,
     marginBottom: 8,
   },
-
+  sectionTitle: {
+    marginTop: 30,
+    marginBottom: 10,
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111",
+  },
   input: {
     borderWidth: 1,
     borderColor: "#CCC",
@@ -168,55 +213,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#111",
   },
-
-  row: {
+  colorRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
+    marginBottom: 12,
   },
-
-  typeButton: {
-    borderWidth: 1,
-    borderColor: "#CCC",
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+  colorSwatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
-
-  selectedButton: {
-    backgroundColor: "#111",
+  colorSwatchSelected: {
+    borderWidth: 3,
     borderColor: "#111",
   },
-
-  typeText: {
-    color: "#111",
-  },
-
-  selectedText: {
-    color: "#FFF",
-    fontWeight: "bold",
-  },
-
   createButton: {
-    marginTop: 24,
     backgroundColor: "#111",
     padding: 14,
     borderRadius: 10,
     alignItems: "center",
+    marginTop: 4,
   },
-
   createButtonText: {
     color: "#FFF",
     fontWeight: "bold",
   },
-
-  sectionTitle: {
-    marginTop: 30,
-    marginBottom: 10,
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-
   labelItem: {
     borderWidth: 1,
     borderColor: "#DDD",
@@ -224,30 +245,73 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
   },
-
+  visibilityBtn: {
+    padding: 2,
+  },
+  visibilityIcon: {
+    fontSize: 18,
+  },
+  colorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+  },
   labelName: {
+    flex: 1,
     fontSize: 16,
     fontWeight: "bold",
+    color: "#111",
   },
-
-  labelType: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
+  labelActions: {
+    flexDirection: "row",
+    gap: 8,
   },
-
+  editButton: {
+    backgroundColor: "#555",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  editButtonText: {
+    color: "#FFF",
+    fontSize: 13,
+  },
   deleteButton: {
     backgroundColor: "#D9534F",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
   },
-
   deleteButtonText: {
     color: "#FFF",
+    fontSize: 13,
+  },
+  editActions: {
+    flexDirection: "row",
+    gap: 8,
+    width: "100%",
+  },
+  saveEditButton: {
+    backgroundColor: "#111",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  saveEditText: {
+    color: "#FFF",
     fontWeight: "bold",
+  },
+  cancelButton: {
+    backgroundColor: "#999",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  cancelText: {
+    color: "#FFF",
   },
 });

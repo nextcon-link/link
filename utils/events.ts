@@ -1,28 +1,15 @@
-export type LabelType = "normal" | "blind" | "private";
-
-export type LabelItem = {
-  id: string;
-  name: string;
-  type: LabelType;
-};
-
-export type LabelsById = {
-  [labelId: string]: LabelItem;
-};
-
-export type EventItem = {
-  id: string;
+export type EventFormInput = {
   title: string;
-  date: string;
+  date: string;           // YYYY-MM-DD local
   startHour: number;
   startMinute: number;
   endHour: number;
   endMinute: number;
-  labelId?: string | null;
+  labelId: string | null;
+  recurrenceRule: string | null;  // iCal RRULE string, e.g. "FREQ=WEEKLY"
 };
 
-export type EventsByWeek = {
-  [weekKey: string]: {
-    [eventId: string]: EventItem;
-  };
+export type LabelFormInput = {
+  name: string;
+  color: string;          // hex color, e.g. "#FF5733"
 };

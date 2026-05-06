@@ -1,66 +1,79 @@
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import { and, eq } from "drizzle-orm";
+import dayjs from "dayjs";
 
-import EventForm from "../components/EventForm";
-import { getCurrentWeekKey, getWeekDates } from "../utils/date";
-import type { EventItem } from "../utils/events";
-import { deleteEvent, updateEvent } from "../utils/eventService";
-import { loadEvents } from "../utils/storage";
+import EventForm from "@/components/EventForm";
+import { db } from "@/database";
+import { events, labels } from "@/database/schema";
+import { updateEvent, deleteEvent } from "@/utils/eventService";
+import { getWeekDates, getWeekKey } from "@/utils/date";
+import type { EventFormInput } from "@/utils/events";
+import { useAuthStore } from "@/store/auth";
 
 export default function EditScreen() {
-  const { id, week } = useLocalSearchParams();
+  const userId = useAuthStore((state) => state.user?.id ?? "");
+  const { id, week } = useLocalSearchParams<{ id: string; week: string }>();
+  const [initialValue, setInitialValue] = useState<EventFormInput | null>(null);
+  const [weekDates, setWeekDates] = useState<Date[]>([]);
 
-  const eventId = String(id);
-  const originalWeekKey = week ? String(week) : getCurrentWeekKey();
-  const weekDates = getWeekDates(originalWeekKey);
+  useEffect(() => {
+    async function loadEvent() {
+      const result = await db
+        .select({ event: events, label: labels })
+        .from(events)
+        .leftJoin(
+          labels,
+          and(eq(events.labelId, labels.id), eq(labels.userId, userId)),
+        )
+        .where(and(eq(events.id, id), eq(events.userId, userId)))
+        .limit(1);
 
-  const [event, setEvent] = useState<EventItem | null>(null);
+      if (result.length === 0) { router.back(); return; }
 
-  useFocusEffect(
-    useCallback(() => {
-      const load = async () => {
-        const allEvents = await loadEvents();
-        const found = allEvents[originalWeekKey]?.[eventId];
+      const { event } = result[0];
+      const startD = dayjs(event.startTime);
+      const endD   = dayjs(event.endTime);
+      const date   = startD.format("YYYY-MM-DD");
 
-        if (!found) {
-          router.back();
-          return;
-        }
+      const resolvedWeekKey = week ?? getWeekKey(date);
+      setWeekDates(getWeekDates(resolvedWeekKey));
 
-        setEvent(found);
-      };
+      setInitialValue({
+        title:          event.title,
+        date,
+        startHour:      startD.hour(),
+        startMinute:    startD.minute(),
+        endHour:        endD.hour(),
+        endMinute:      endD.minute(),
+        labelId:        event.labelId ?? null,
+        recurrenceRule: event.recurrenceRule ?? null,
+      });
+    }
 
-      load();
-    }, [eventId, originalWeekKey]),
-  );
+    if (id && userId) loadEvent();
+  }, [id, userId, week]);
 
-  if (!event) {
-    return null;
+  if (!initialValue) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator />
+      </View>
+    );
   }
 
   return (
     <EventForm
       mode="edit"
-      titleText="일정 수정"
       weekDates={weekDates}
-      initialValue={{
-        title: event.title,
-        date: event.date,
-        startHour: event.startHour,
-        startMinute: event.startMinute,
-        endHour: event.endHour,
-        endMinute: event.endMinute,
-        labelId: event.labelId ?? null,
-      }}
+      initialValue={initialValue}
       onSubmit={async (input) => {
-        const ok = await updateEvent(eventId, originalWeekKey, input);
-
-        if (ok) {
-          router.back();
-        }
+        const ok = await updateEvent(id, input);
+        if (ok) router.back();
       }}
       onDelete={async () => {
-        await deleteEvent(eventId, originalWeekKey);
+        await deleteEvent(id);
         router.back();
       }}
     />
