@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, type Href } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
@@ -169,6 +169,12 @@ export default function HomeScreen() {
       >
         <Text style={styles.buttonText}>라벨</Text>
       </Pressable>
+      <Pressable
+        style={styles.friendBtn}
+        onPress={() => router.push("/friends" as Href)}
+      >
+        <Text style={styles.buttonText}>친구</Text>
+      </Pressable>
     </View>
   );
 }
@@ -243,6 +249,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 30,
     left: 75,
+    backgroundColor: "black",
+    padding: 10,
+  },
+  friendBtn: {
+    position: "absolute",
+    bottom: 30,
+    left: 130,
     backgroundColor: "black",
     padding: 10,
   },

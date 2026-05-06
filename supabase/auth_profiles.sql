@@ -39,15 +39,27 @@ create table if not exists public.events (
     on delete set null (label_id)
 );
 
+create table if not exists public.friendships (
+  id uuid primary key default gen_random_uuid(),
+  user_low_id uuid not null references auth.users(id) on delete cascade,
+  user_high_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  check (user_low_id < user_high_id),
+  unique (user_low_id, user_high_id)
+);
+
 create index if not exists labels_user_id_idx on public.labels(user_id);
 create index if not exists labels_updated_at_idx on public.labels(updated_at);
 create index if not exists events_user_id_idx on public.events(user_id);
 create index if not exists events_updated_at_idx on public.events(updated_at);
 create index if not exists events_start_time_idx on public.events(start_time);
+create index if not exists friendships_user_low_id_idx on public.friendships(user_low_id);
+create index if not exists friendships_user_high_id_idx on public.friendships(user_high_id);
 
 alter table public.profiles enable row level security;
 alter table public.events enable row level security;
 alter table public.labels enable row level security;
+alter table public.friendships enable row level security;
 
 drop policy if exists profiles_select_public_fields on public.profiles;
 create policy profiles_select_public_fields
@@ -122,6 +134,20 @@ for delete
 to authenticated
 using (auth.uid()::text = user_id);
 
+drop policy if exists friendships_owner_select on public.friendships;
+create policy friendships_owner_select
+on public.friendships
+for select
+to authenticated
+using (auth.uid() = user_low_id or auth.uid() = user_high_id);
+
+drop policy if exists friendships_owner_delete on public.friendships;
+create policy friendships_owner_delete
+on public.friendships
+for delete
+to authenticated
+using (auth.uid() = user_low_id or auth.uid() = user_high_id);
+
 revoke select on public.profiles from anon, authenticated;
 grant select (id, username, display_name, avatar_url) on public.profiles to authenticated;
 
@@ -166,3 +192,100 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
+
+create or replace function public.get_friends()
+returns table (
+  id uuid,
+  username text,
+  display_name text,
+  avatar_url text,
+  created_at timestamptz
+) as $$
+begin
+  return query
+  select
+    p.id,
+    p.username,
+    p.display_name,
+    p.avatar_url,
+    f.created_at
+  from public.friendships f
+  join public.profiles p
+    on p.id = case
+      when f.user_low_id = auth.uid() then f.user_high_id
+      else f.user_low_id
+    end
+  where auth.uid() = f.user_low_id
+     or auth.uid() = f.user_high_id
+  order by coalesce(p.display_name, p.username), p.username;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.add_friend_by_username(p_username text)
+returns table (
+  id uuid,
+  username text,
+  display_name text,
+  avatar_url text,
+  created_at timestamptz
+) as $$
+declare
+  target_user_id uuid;
+  low_id uuid;
+  high_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+
+  select profiles.id
+  into target_user_id
+  from public.profiles
+  where profiles.username = nullif(trim(p_username), '')
+  limit 1;
+
+  if target_user_id is null then
+    raise exception 'user_not_found' using errcode = 'P0001';
+  end if;
+
+  if target_user_id = auth.uid() then
+    raise exception 'cannot_add_self' using errcode = 'P0001';
+  end if;
+
+  low_id := least(auth.uid(), target_user_id);
+  high_id := greatest(auth.uid(), target_user_id);
+
+  insert into public.friendships (user_low_id, user_high_id)
+  values (low_id, high_id)
+  on conflict (user_low_id, user_high_id) do nothing;
+
+  return query
+  select
+    p.id,
+    p.username,
+    p.display_name,
+    p.avatar_url,
+    f.created_at
+  from public.friendships f
+  join public.profiles p on p.id = target_user_id
+  where f.user_low_id = low_id
+    and f.user_high_id = high_id;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.remove_friend(p_friend_id uuid)
+returns void as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+
+  delete from public.friendships
+  where (user_low_id = least(auth.uid(), p_friend_id)
+     and user_high_id = greatest(auth.uid(), p_friend_id));
+end;
+$$ language plpgsql security definer set search_path = public;
+
+grant execute on function public.get_friends() to authenticated;
+grant execute on function public.add_friend_by_username(text) to authenticated;
+grant execute on function public.remove_friend(uuid) to authenticated;
