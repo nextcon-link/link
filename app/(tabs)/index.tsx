@@ -14,6 +14,8 @@ import { events, labels } from "@/database/schema";
 import { getMergedEvents, type MergedEvent, type EventWithLabel } from "@/services/deviceSync";
 import { useAuthStore } from "@/store/auth";
 
+const MAIN_CALENDAR_LAYOUT_GROUP_ID = "main-calendar";
+
 export default function HomeScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const { week } = useLocalSearchParams();
@@ -77,6 +79,7 @@ export default function HomeScreen() {
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,
         editable: event.source === "local",
+        layoutGroupId: MAIN_CALENDAR_LAYOUT_GROUP_ID,
       })),
     [mergedEvents],
   );

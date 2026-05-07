@@ -112,6 +112,7 @@ export default function SharedScreen() {
             opacity: eventOpacity,
             source: MY_CALENDAR_ID,
             editable: false,
+            layoutGroupId: MY_CALENDAR_ID,
           }))
       : [];
 
@@ -126,6 +127,7 @@ export default function SharedScreen() {
         opacity: eventOpacity,
         source: row.bundle.id,
         editable: false,
+        layoutGroupId: row.bundle.id,
       }));
 
     return [...mine, ...shared].sort((a, b) => a.startTime - b.startTime);
