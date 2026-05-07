@@ -28,6 +28,28 @@ export const events = sqliteTable('events', {
   updatedAt:         integer('updated_at').notNull(),
 });
 
+export const sharedBundles = sqliteTable('shared_bundles', {
+  id:        text('id').primaryKey(),
+  userId:    text('user_id').notNull(),
+  title:     text('title').notNull(),
+  ownerName: text('owner_name').notNull(),
+  color:     text('color').notNull().default('#6C8AE4'),
+  expiresAt: integer('expires_at'),
+  isDemo:    integer('is_demo', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const sharedBundleEvents = sqliteTable('shared_bundle_events', {
+  id:        text('id').primaryKey(),
+  bundleId:  text('bundle_id').notNull().references(() => sharedBundles.id, { onDelete: 'cascade' }),
+  userId:    text('user_id').notNull(),
+  title:     text('title').notNull(),
+  startTime: integer('start_time').notNull(),
+  endTime:   integer('end_time').notNull(),
+  isAllDay:  integer('is_all_day', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const labelsRelations = relations(labels, ({ many }) => ({
   events: many(events),
 }));
@@ -36,9 +58,24 @@ export const eventsRelations = relations(events, ({ one }) => ({
   label: one(labels, { fields: [events.labelId], references: [labels.id] }),
 }));
 
+export const sharedBundlesRelations = relations(sharedBundles, ({ many }) => ({
+  events: many(sharedBundleEvents),
+}));
+
+export const sharedBundleEventsRelations = relations(sharedBundleEvents, ({ one }) => ({
+  bundle: one(sharedBundles, {
+    fields: [sharedBundleEvents.bundleId],
+    references: [sharedBundles.id],
+  }),
+}));
+
 // Inferred TypeScript types
 export type Label = typeof labels.$inferSelect;
 export type NewLabel = typeof labels.$inferInsert;
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
+export type SharedBundle = typeof sharedBundles.$inferSelect;
+export type NewSharedBundle = typeof sharedBundles.$inferInsert;
+export type SharedBundleEvent = typeof sharedBundleEvents.$inferSelect;
+export type NewSharedBundleEvent = typeof sharedBundleEvents.$inferInsert;
 export type SyncStatus = 'synced' | 'pending_create' | 'pending_update' | 'pending_delete';
