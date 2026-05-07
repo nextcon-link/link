@@ -100,7 +100,6 @@ export default function EventForm({
       <Stack.Screen
         options={{
           title: headerTitle,
-          presentation: "modal",
           headerRight: () => (
             <Pressable onPress={handleSubmit} style={styles.headerBtn}>
               <Text style={[styles.headerBtnText, styles.headerBtnPrimary]}>
