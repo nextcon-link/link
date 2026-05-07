@@ -37,6 +37,36 @@ try {
       updated_at          INTEGER NOT NULL
     )`,
   );
+  expo.runSync(
+    `CREATE TABLE IF NOT EXISTS shared_bundles (
+      id         TEXT PRIMARY KEY NOT NULL,
+      user_id    TEXT NOT NULL,
+      title      TEXT NOT NULL,
+      owner_name TEXT NOT NULL,
+      color      TEXT NOT NULL DEFAULT '#6C8AE4',
+      expires_at INTEGER,
+      is_demo    INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`,
+  );
+  expo.runSync(
+    `CREATE TABLE IF NOT EXISTS shared_bundle_events (
+      id         TEXT PRIMARY KEY NOT NULL,
+      bundle_id  TEXT NOT NULL REFERENCES shared_bundles(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL,
+      title      TEXT NOT NULL,
+      start_time INTEGER NOT NULL,
+      end_time   INTEGER NOT NULL,
+      is_all_day INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`,
+  );
+  expo.runSync(
+    'CREATE INDEX IF NOT EXISTS shared_bundles_user_id_idx ON shared_bundles(user_id)',
+  );
+  expo.runSync(
+    'CREATE INDEX IF NOT EXISTS shared_bundle_events_bundle_id_idx ON shared_bundle_events(bundle_id)',
+  );
 } catch (e) {
   console.error('[DB] sync init error:', e);
 }
