@@ -21,6 +21,10 @@ export type RemoteLabel = {
   name: string;
   color: string;
   is_visible: boolean;
+  google_calendar_id: string | null;
+  google_access_role: string | null;
+  google_sync_enabled: boolean;
+  google_is_readonly: boolean;
   updated_at: string;
 };
 
@@ -36,7 +40,11 @@ export type RemoteEvent = {
   recurring_event_id: string | null;
   original_start_time: string | null;
   google_event_id: string | null;
+  google_calendar_id: string | null;
+  google_etag: string | null;
+  google_updated_at: string | null;
   updated_at: string;
+  deleted_at: string | null;
 };
 
 // ── Labels ──────────────────────────────────────────────────────────────────
@@ -48,6 +56,10 @@ export async function pushLabels(rows: Label[]): Promise<Set<string>> {
     name: l.name,
     color: l.color,
     is_visible: l.isVisible,
+    google_calendar_id: l.googleCalendarId,
+    google_access_role: l.googleAccessRole,
+    google_sync_enabled: l.googleSyncEnabled,
+    google_is_readonly: l.googleIsReadonly,
     updated_at: new Date(l.updatedAt).toISOString(),
   }));
   const { data, error } = await supabase
@@ -88,7 +100,7 @@ export async function pushEvents(rows: Event[]): Promise<Set<string>> {
     original_start_time: e.originalStartTime
       ? new Date(e.originalStartTime).toISOString()
       : null,
-    google_event_id: e.googleEventId,
+    deleted_at: e.deletedAt ? new Date(e.deletedAt).toISOString() : null,
     updated_at: new Date(e.updatedAt).toISOString(),
   }));
   const { data, error } = await supabase
@@ -100,7 +112,11 @@ export async function pushEvents(rows: Event[]): Promise<Set<string>> {
 }
 
 export async function deleteEvents(ids: string[]): Promise<void> {
-  const { error } = await supabase.from('events').delete().in('id', ids);
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('events')
+    .update({ deleted_at: now, updated_at: now })
+    .in('id', ids);
   if (error) throw error;
 }
 
@@ -111,4 +127,11 @@ export async function fetchRemoteEventChanges(since: number): Promise<RemoteEven
     .gt('updated_at', new Date(since).toISOString());
   if (error) throw error;
   return data ?? [];
+}
+
+export async function triggerGoogleSyncNow(): Promise<void> {
+  const { error } = await supabase.functions.invoke('google-sync-now', {
+    body: { mode: 'sync' },
+  });
+  if (error) throw error;
 }

@@ -16,6 +16,10 @@ create table if not exists public.labels (
   name text not null,
   color text not null default '#4A90E2',
   is_visible boolean not null default true,
+  google_calendar_id text,
+  google_access_role text,
+  google_sync_enabled boolean not null default false,
+  google_is_readonly boolean not null default false,
   updated_at timestamptz not null default now(),
   unique (id, user_id)
 );
@@ -32,11 +36,56 @@ create table if not exists public.events (
   recurring_event_id text,
   original_start_time timestamptz,
   google_event_id text,
+  google_calendar_id text,
+  google_etag text,
+  google_updated_at timestamptz,
   device_event_id text,
+  deleted_at timestamptz,
   updated_at timestamptz not null default now(),
   foreign key (label_id, user_id)
     references public.labels(id, user_id)
     on delete set null (label_id)
+);
+
+alter table public.labels add column if not exists google_calendar_id text;
+alter table public.labels add column if not exists google_access_role text;
+alter table public.labels add column if not exists google_sync_enabled boolean not null default false;
+alter table public.labels add column if not exists google_is_readonly boolean not null default false;
+alter table public.events add column if not exists google_calendar_id text;
+alter table public.events add column if not exists google_etag text;
+alter table public.events add column if not exists google_updated_at timestamptz;
+alter table public.events add column if not exists deleted_at timestamptz;
+
+create table if not exists public.google_connections (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  google_subject text,
+  access_token text,
+  refresh_token text,
+  expires_at timestamptz,
+  scope text,
+  is_connected boolean not null default true,
+  last_sync_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.google_calendar_links (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  label_id text references public.labels(id) on delete set null,
+  google_calendar_id text not null,
+  google_calendar_summary text not null,
+  google_access_role text,
+  google_sync_token text,
+  watch_channel_id text,
+  watch_resource_id text,
+  watch_expires_at timestamptz,
+  is_enabled boolean not null default true,
+  is_readonly boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, google_calendar_id)
 );
 
 create table if not exists public.friendships (
@@ -53,6 +102,12 @@ create index if not exists labels_updated_at_idx on public.labels(updated_at);
 create index if not exists events_user_id_idx on public.events(user_id);
 create index if not exists events_updated_at_idx on public.events(updated_at);
 create index if not exists events_start_time_idx on public.events(start_time);
+create index if not exists events_deleted_at_idx on public.events(deleted_at);
+create unique index if not exists events_google_event_idx
+  on public.events(user_id, google_calendar_id, google_event_id)
+  where google_calendar_id is not null and google_event_id is not null;
+create index if not exists google_calendar_links_user_id_idx on public.google_calendar_links(user_id);
+create index if not exists google_calendar_links_watch_channel_idx on public.google_calendar_links(watch_channel_id);
 create index if not exists friendships_user_low_id_idx on public.friendships(user_low_id);
 create index if not exists friendships_user_high_id_idx on public.friendships(user_high_id);
 
@@ -60,6 +115,8 @@ alter table public.profiles enable row level security;
 alter table public.events enable row level security;
 alter table public.labels enable row level security;
 alter table public.friendships enable row level security;
+alter table public.google_connections enable row level security;
+alter table public.google_calendar_links enable row level security;
 
 drop policy if exists profiles_select_public_fields on public.profiles;
 create policy profiles_select_public_fields
@@ -104,6 +161,13 @@ on public.events
 for delete
 to authenticated
 using (auth.uid()::text = user_id);
+
+drop policy if exists google_calendar_links_owner_select on public.google_calendar_links;
+create policy google_calendar_links_owner_select
+on public.google_calendar_links
+for select
+to authenticated
+using (auth.uid() = user_id);
 
 drop policy if exists labels_owner_select on public.labels;
 create policy labels_owner_select

@@ -15,6 +15,8 @@ export async function createLabel(input: LabelFormInput): Promise<void> {
     name:       input.name.trim(),
     color:      input.color,
     isVisible:  true,
+    googleSyncEnabled: true,
+    googleIsReadonly: false,
     syncStatus: "pending_create",
     updatedAt:  Date.now(),
   });

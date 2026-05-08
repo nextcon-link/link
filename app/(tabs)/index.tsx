@@ -2,7 +2,7 @@ import { router, useLocalSearchParams, type Href } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
-import { and, eq, gte, lte, ne } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne } from "drizzle-orm";
 import dayjs from "dayjs";
 
 import WeekCalendarView, {
@@ -13,6 +13,8 @@ import { db } from "@/database";
 import { events, labels } from "@/database/schema";
 import { getMergedEvents, type MergedEvent, type EventWithLabel } from "@/services/deviceSync";
 import { useAuthStore } from "@/store/auth";
+
+const MAIN_CALENDAR_LAYOUT_GROUP_ID = "main-calendar";
 
 export default function HomeScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
@@ -40,6 +42,7 @@ export default function HomeScreen() {
           eq(events.userId, userId),
           gte(events.startTime, weekStart),
           lte(events.startTime, weekEnd),
+          isNull(events.deletedAt),
           ne(events.syncStatus, "pending_delete"),
         ),
       ),
@@ -76,7 +79,8 @@ export default function HomeScreen() {
         color: event.labelColor,
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,
-        editable: event.source === "local",
+        editable: event.source === "local" && !event.isReadonly,
+        layoutGroupId: MAIN_CALENDAR_LAYOUT_GROUP_ID,
       })),
     [mergedEvents],
   );

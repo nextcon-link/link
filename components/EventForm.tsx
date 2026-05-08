@@ -137,15 +137,21 @@ export default function EventForm({
           </Pressable>
           {dbLabels.map((lbl) => {
             const selected = selectedLabelId === lbl.id;
+            const disabled = lbl.googleIsReadonly;
             return (
               <Pressable
                 key={lbl.id}
-                style={[styles.chip, selected && styles.chipSelected]}
+                disabled={disabled}
+                style={[
+                  styles.chip,
+                  selected && styles.chipSelected,
+                  disabled && styles.chipDisabled,
+                ]}
                 onPress={() => setSelectedLabelId(lbl.id)}
               >
                 <View style={[styles.colorDot, { backgroundColor: lbl.color }]} />
                 <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {lbl.name}
+                  {lbl.name}{disabled ? " 읽기전용" : ""}
                 </Text>
               </Pressable>
             );
@@ -333,6 +339,9 @@ const styles = StyleSheet.create({
   chipSelected: {
     backgroundColor: "#111",
     borderColor: "#111",
+  },
+  chipDisabled: {
+    opacity: 0.45,
   },
   chipText: {
     fontSize: 14,

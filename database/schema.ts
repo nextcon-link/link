@@ -7,6 +7,10 @@ export const labels = sqliteTable('labels', {
   name:       text('name').notNull(),
   color:      text('color').notNull().default('#4A90E2'),
   isVisible:  integer('is_visible', { mode: 'boolean' }).notNull().default(true),
+  googleCalendarId: text('google_calendar_id'),
+  googleAccessRole: text('google_access_role'),
+  googleSyncEnabled: integer('google_sync_enabled', { mode: 'boolean' }).notNull().default(false),
+  googleIsReadonly: integer('google_is_readonly', { mode: 'boolean' }).notNull().default(false),
   syncStatus: text('sync_status').notNull().default('pending_create'),
   updatedAt:  integer('updated_at').notNull(),
 });
@@ -23,7 +27,11 @@ export const events = sqliteTable('events', {
   recurringEventId:  text('recurring_event_id'),
   originalStartTime: integer('original_start_time'),
   googleEventId:     text('google_event_id'),
+  googleCalendarId:  text('google_calendar_id'),
+  googleEtag:        text('google_etag'),
+  googleUpdatedAt:   integer('google_updated_at'),
   deviceEventId:     text('device_event_id'),
+  deletedAt:         integer('deleted_at'),
   syncStatus:        text('sync_status').notNull().default('pending_create'),
   updatedAt:         integer('updated_at').notNull(),
 });

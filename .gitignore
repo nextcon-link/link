@@ -42,6 +42,9 @@ app-example
 /ios
 /android
 
+# npx supabase
+supabase/.temp
+
 
 .secrets
 CLAUDE.md

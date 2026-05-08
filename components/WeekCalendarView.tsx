@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Pressable,
   ScrollView,
@@ -14,6 +14,8 @@ import { DAYS, formatDate, getWeekDates } from "@/utils/date";
 const HOUR_HEIGHT = 70;
 const TIME_COLUMN_WIDTH = 44;
 const HORIZONTAL_PADDING = 24;
+const EVENT_GAP = 2;
+const DEFAULT_LAYOUT_GROUP_ID = "default";
 
 export type WeekCalendarEvent = {
   id: string;
@@ -24,6 +26,7 @@ export type WeekCalendarEvent = {
   opacity?: number;
   source?: string;
   editable?: boolean;
+  layoutGroupId?: string;
 };
 
 type Props = {
@@ -33,6 +36,79 @@ type Props = {
   onEventPress?: (event: WeekCalendarEvent) => void;
 };
 
+type PositionedEvent = WeekCalendarEvent & {
+  eventDateIndex: number;
+  laneIndex: number;
+  laneCount: number;
+  startHour: number;
+  endHour: number;
+};
+
+type LanePosition = {
+  event: WeekCalendarEvent;
+  laneIndex: number;
+  laneCount: number;
+};
+
+function positionCluster(cluster: WeekCalendarEvent[]): LanePosition[] {
+  const laneEnds: number[] = [];
+  const assigned = cluster.map((event) => {
+    let laneIndex = laneEnds.findIndex((endTime) => endTime <= event.startTime);
+    if (laneIndex === -1) {
+      laneIndex = laneEnds.length;
+      laneEnds.push(event.endTime);
+    } else {
+      laneEnds[laneIndex] = event.endTime;
+    }
+
+    return { event, laneIndex };
+  });
+
+  const laneCount = Math.max(laneEnds.length, 1);
+  return assigned.map((item) => ({ ...item, laneCount }));
+}
+
+function positionEventsInGroup(
+  groupEvents: WeekCalendarEvent[],
+): LanePosition[] {
+  const sorted = [...groupEvents].sort(
+    (a, b) => a.startTime - b.startTime || a.endTime - b.endTime,
+  );
+  const positioned: LanePosition[] = [];
+
+  let cluster: WeekCalendarEvent[] = [];
+  let clusterEnd = 0;
+
+  const flushCluster = () => {
+    if (cluster.length === 0) return;
+    positioned.push(...positionCluster(cluster));
+    cluster = [];
+    clusterEnd = 0;
+  };
+
+  for (const event of sorted) {
+    if (cluster.length === 0) {
+      cluster = [event];
+      clusterEnd = event.endTime;
+      continue;
+    }
+
+    const touchesCluster = event.startTime < clusterEnd;
+    if (!touchesCluster) {
+      flushCluster();
+      cluster = [event];
+      clusterEnd = event.endTime;
+      continue;
+    }
+
+    cluster.push(event);
+    clusterEnd = Math.max(clusterEnd, event.endTime);
+  }
+
+  flushCluster();
+  return positioned;
+}
+
 export default function WeekCalendarView({
   weekKey,
   events,
@@ -40,9 +116,47 @@ export default function WeekCalendarView({
   onEventPress,
 }: Props) {
   const { width } = useWindowDimensions();
-  const weekDates = getWeekDates(weekKey);
+  const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
   const baseDate = weekDates[0];
   const dayWidth = (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING) / 7;
+  const positionedEvents = useMemo<PositionedEvent[]>(() => {
+    const groups = new Map<string, WeekCalendarEvent[]>();
+
+    for (const event of events) {
+      const startD = dayjs(event.startTime);
+      const eventDate = startD.format("YYYY-MM-DD");
+      const eventDateIndex = weekDates.findIndex(
+        (d) => formatDate(d) === eventDate,
+      );
+      if (eventDateIndex === -1) continue;
+
+      const groupId = event.layoutGroupId ?? DEFAULT_LAYOUT_GROUP_ID;
+      const key = `${eventDate}:${groupId}`;
+      const group = groups.get(key) ?? [];
+      group.push(event);
+      groups.set(key, group);
+    }
+
+    return Array.from(groups.values()).flatMap((groupEvents) =>
+      positionEventsInGroup(groupEvents).map(({ event, laneIndex, laneCount }) => {
+        const startD = dayjs(event.startTime);
+        const endD = dayjs(event.endTime);
+        const eventDate = startD.format("YYYY-MM-DD");
+        const eventDateIndex = weekDates.findIndex(
+          (d) => formatDate(d) === eventDate,
+        );
+
+        return {
+          ...event,
+          eventDateIndex,
+          laneIndex,
+          laneCount,
+          startHour: startD.hour() + startD.minute() / 60,
+          endHour: endD.hour() + endD.minute() / 60,
+        };
+      }),
+    );
+  }, [events, weekDates]);
 
   return (
     <View style={styles.container}>
@@ -79,17 +193,9 @@ export default function WeekCalendarView({
             </View>
           )}
 
-          {events.map((event) => {
-            const startD = dayjs(event.startTime);
-            const endD = dayjs(event.endTime);
-            const eventDate = startD.format("YYYY-MM-DD");
-            const eventDateIndex = weekDates.findIndex(
-              (d) => formatDate(d) === eventDate,
-            );
-            if (eventDateIndex === -1) return null;
-
-            const start = startD.hour() + startD.minute() / 60;
-            const end = endD.hour() + endD.minute() / 60;
+          {positionedEvents.map((event) => {
+            const laneWidth = dayWidth / event.laneCount;
+            const laneGap = event.laneCount > 1 ? EVENT_GAP : 0;
 
             return (
               <Pressable
@@ -100,10 +206,14 @@ export default function WeekCalendarView({
                   styles.eventBlock,
                   {
                     backgroundColor: event.color,
-                    top: start * HOUR_HEIGHT,
-                    height: Math.max((end - start) * HOUR_HEIGHT, 20),
-                    left: TIME_COLUMN_WIDTH + eventDateIndex * dayWidth,
-                    width: dayWidth,
+                    top: event.startHour * HOUR_HEIGHT,
+                    height: Math.max((event.endHour - event.startHour) * HOUR_HEIGHT, 20),
+                    left:
+                      TIME_COLUMN_WIDTH +
+                      event.eventDateIndex * dayWidth +
+                      event.laneIndex * laneWidth +
+                      laneGap / 2,
+                    width: Math.max(laneWidth - laneGap, 8),
                     opacity: event.opacity ?? 1,
                   },
                 ]}
