@@ -62,6 +62,7 @@ export default function RootLayout() {
         <Stack.Screen name="add" options={{ presentation: 'modal' }} />
         <Stack.Screen name="edit" options={{ presentation: 'modal' }} />
         <Stack.Screen name="labels" options={{ title: '라벨 관리' }} />
+        <Stack.Screen name="google" options={{ title: 'Google Calendar' }} />
         <Stack.Screen name="friends" options={{ title: '친구' }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />

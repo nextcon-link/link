@@ -22,6 +22,7 @@ export async function getMergedEvents(
       isAllDay: e.isAllDay,
       source: 'local' as const,
       labelColor: e.label?.color ?? '#4A90E2',
+      isReadonly: e.label?.googleIsReadonly ?? false,
       syncStatus: e.syncStatus,
     }));
 }

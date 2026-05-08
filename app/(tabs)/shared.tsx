@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from "react";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
-import { and, eq, gte, lte, ne } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne } from "drizzle-orm";
 import dayjs from "dayjs";
 
 import SharedBundleViewer, {
@@ -58,6 +58,7 @@ export default function SharedScreen() {
           eq(events.userId, userId),
           gte(events.startTime, weekStart),
           lte(events.startTime, weekEnd),
+          isNull(events.deletedAt),
           ne(events.syncStatus, "pending_delete"),
         ),
       ),

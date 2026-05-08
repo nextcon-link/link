@@ -10,6 +10,7 @@ export type MergedEvent = {
   isAllDay: boolean;
   source: 'local' | 'device';
   labelColor: string;
+  isReadonly?: boolean;
   syncStatus?: string;
 };
 
@@ -37,6 +38,7 @@ export async function getMergedEvents(
       isAllDay: e.isAllDay,
       source: 'local',
       labelColor: e.label?.color ?? '#4A90E2',
+      isReadonly: e.label?.googleIsReadonly ?? false,
       syncStatus: e.syncStatus,
     }));
 

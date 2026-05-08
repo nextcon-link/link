@@ -2,11 +2,26 @@ import { generateId } from "@/utils/uuid";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/database";
-import { events } from "@/database/schema";
+import { events, labels } from "@/database/schema";
 import { pushChanges } from "@/services/syncEngine";
 import { toUtcMs } from "@/utils/datetime";
 import { getCurrentUserId } from "@/utils/storage";
 import type { EventFormInput } from "@/utils/events";
+
+async function canWriteToLabel(
+  userId: string,
+  labelId: string | null,
+): Promise<boolean> {
+  if (!labelId) return true;
+
+  const rows = await db
+    .select({ googleIsReadonly: labels.googleIsReadonly })
+    .from(labels)
+    .where(and(eq(labels.id, labelId), eq(labels.userId, userId)))
+    .limit(1);
+
+  return rows.length > 0 && !rows[0].googleIsReadonly;
+}
 
 // Flow A — optimistic write to local DB, then background sync to Supabase.
 // Returns false if validation fails (empty title or bad times).
@@ -20,6 +35,7 @@ export async function createEvent(input: EventFormInput): Promise<boolean> {
   if (endUtc <= startUtc) return false;
 
   const userId = await getCurrentUserId();
+  if (!(await canWriteToLabel(userId, labelId))) return false;
 
   await db.insert(events).values({
     id:         generateId(),
@@ -30,6 +46,7 @@ export async function createEvent(input: EventFormInput): Promise<boolean> {
     isAllDay:       false,
     labelId,
     recurrenceRule: recurrenceRule ?? null,
+    deletedAt:      null,
     syncStatus:     "pending_create",
     updatedAt:  Date.now(),
   });
@@ -51,6 +68,7 @@ export async function updateEvent(
   if (endUtc <= startUtc) return false;
 
   const userId = await getCurrentUserId();
+  if (!(await canWriteToLabel(userId, labelId))) return false;
 
   await db.update(events).set({
     title:      title.trim(),
@@ -58,6 +76,7 @@ export async function updateEvent(
     endTime:    endUtc,
     labelId,
     recurrenceRule: recurrenceRule ?? null,
+    deletedAt:      null,
     syncStatus:     "pending_update",
     updatedAt:  Date.now(),
   }).where(and(eq(events.id, id), eq(events.userId, userId)));
@@ -71,6 +90,7 @@ export async function deleteEvent(id: string): Promise<void> {
   const userId = await getCurrentUserId();
   await db.update(events).set({
     syncStatus: "pending_delete",
+    deletedAt:  Date.now(),
     updatedAt:  Date.now(),
   }).where(and(eq(events.id, id), eq(events.userId, userId)));
 

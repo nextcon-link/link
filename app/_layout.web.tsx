@@ -19,6 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="add" />
         <Stack.Screen name="edit" />
         <Stack.Screen name="labels" />
+        <Stack.Screen name="google" />
         <Stack.Screen name="friends" />
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />

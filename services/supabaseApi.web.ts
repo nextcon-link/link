@@ -25,6 +25,9 @@ export const supabase = {
     signUp: notAvailableOnWeb,
     signOut: notAvailableOnWeb,
   },
+  functions: {
+    invoke: notAvailableOnWeb,
+  },
   from: notAvailableOnWeb,
   rpc: notAvailableOnWeb,
 };
@@ -35,6 +38,10 @@ export type RemoteLabel = {
   name: string;
   color: string;
   is_visible: boolean;
+  google_calendar_id: string | null;
+  google_access_role: string | null;
+  google_sync_enabled: boolean;
+  google_is_readonly: boolean;
   updated_at: string;
 };
 
@@ -50,7 +57,11 @@ export type RemoteEvent = {
   recurring_event_id: string | null;
   original_start_time: string | null;
   google_event_id: string | null;
+  google_calendar_id: string | null;
+  google_etag: string | null;
+  google_updated_at: string | null;
   updated_at: string;
+  deleted_at: string | null;
 };
 
 export async function pushLabels(_rows: Label[]): Promise<Set<string>> {
@@ -76,3 +87,5 @@ export async function fetchRemoteEventChanges(
 ): Promise<RemoteEvent[]> {
   return [];
 }
+
+export async function triggerGoogleSyncNow(): Promise<void> {}
