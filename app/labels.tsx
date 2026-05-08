@@ -7,7 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import { and, eq, ne } from "drizzle-orm";
 
@@ -76,6 +76,12 @@ export default function LabelsScreen() {
       <Stack.Screen options={{ title: "라벨 관리" }} />
     <ScrollView style={styles.container}>
       <Text style={styles.title}>라벨 관리</Text>
+      <Pressable
+        style={styles.googleButton}
+        onPress={() => router.push("/google")}
+      >
+        <Text style={styles.googleButtonText}>Google Calendar 연동</Text>
+      </Pressable>
 
       {/* ── 라벨 추가 폼 ───────────────────────────────── */}
       <Text style={styles.sectionLabel}>새 라벨</Text>
@@ -156,6 +162,11 @@ export default function LabelsScreen() {
               style={[styles.colorDot, { backgroundColor: lbl.color }]}
             />
             <Text style={styles.labelName}>{lbl.name}</Text>
+            {lbl.googleCalendarId && (
+              <Text style={styles.googleBadge}>
+                {lbl.googleIsReadonly ? "Google 읽기전용" : "Google"}
+              </Text>
+            )}
             <View style={styles.labelActions}>
               <Pressable
                 style={styles.editButton}
@@ -197,6 +208,18 @@ const styles = StyleSheet.create({
     color: "#333",
     marginTop: 16,
     marginBottom: 8,
+  },
+  googleButton: {
+    alignItems: "center",
+    backgroundColor: "#111",
+    borderRadius: 10,
+    marginBottom: 10,
+    padding: 13,
+  },
+  googleButtonText: {
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
   sectionTitle: {
     marginTop: 30,
@@ -269,6 +292,16 @@ const styles = StyleSheet.create({
   labelActions: {
     flexDirection: "row",
     gap: 8,
+  },
+  googleBadge: {
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 999,
+    color: "#555",
+    fontSize: 11,
+    fontWeight: "700",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   editButton: {
     backgroundColor: "#555",

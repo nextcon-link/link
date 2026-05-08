@@ -1,43 +1,30 @@
 import { generateId } from "@/utils/uuid";
-import { and, eq, gte, gt, lt, ne } from "drizzle-orm";
-import dayjs from "dayjs";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/database";
-import { events } from "@/database/schema";
+import { events, labels } from "@/database/schema";
 import { pushChanges } from "@/services/syncEngine";
 import { toUtcMs } from "@/utils/datetime";
 import { getCurrentUserId } from "@/utils/storage";
 import type { EventFormInput } from "@/utils/events";
 
-// Returns true if the given slot overlaps any existing (non-deleted) event on that day.
-// Pass excludeId when editing to skip the event being modified.
-async function hasOverlap(
-  input: EventFormInput,
+async function canWriteToLabel(
   userId: string,
-  excludeId?: string,
+  labelId: string | null,
 ): Promise<boolean> {
-  const { date, startHour, startMinute, endHour, endMinute } = input;
-  const startUtc = toUtcMs(date, startHour, startMinute);
-  const endUtc   = toUtcMs(date, endHour, endMinute);
-  const dayStart = dayjs(date).startOf("day").valueOf();
-  const dayEnd   = dayjs(date).endOf("day").valueOf();
+  if (!labelId) return true;
 
-  const candidates = await db.select().from(events).where(
-    and(
-      gte(events.startTime, dayStart),
-      lt(events.startTime, dayEnd),
-      lt(events.startTime, endUtc),
-      gt(events.endTime, startUtc),
-      eq(events.userId, userId),
-      ne(events.syncStatus, "pending_delete"),
-    ),
-  );
+  const rows = await db
+    .select({ googleIsReadonly: labels.googleIsReadonly })
+    .from(labels)
+    .where(and(eq(labels.id, labelId), eq(labels.userId, userId)))
+    .limit(1);
 
-  return candidates.some((e) => e.id !== excludeId);
+  return rows.length > 0 && !rows[0].googleIsReadonly;
 }
 
 // Flow A — optimistic write to local DB, then background sync to Supabase.
-// Returns false if validation fails (empty title, bad times, overlap).
+// Returns false if validation fails (empty title or bad times).
 export async function createEvent(input: EventFormInput): Promise<boolean> {
   const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule } = input;
 
@@ -48,7 +35,7 @@ export async function createEvent(input: EventFormInput): Promise<boolean> {
   if (endUtc <= startUtc) return false;
 
   const userId = await getCurrentUserId();
-  if (await hasOverlap(input, userId)) return false;
+  if (!(await canWriteToLabel(userId, labelId))) return false;
 
   await db.insert(events).values({
     id:         generateId(),
@@ -59,6 +46,7 @@ export async function createEvent(input: EventFormInput): Promise<boolean> {
     isAllDay:       false,
     labelId,
     recurrenceRule: recurrenceRule ?? null,
+    deletedAt:      null,
     syncStatus:     "pending_create",
     updatedAt:  Date.now(),
   });
@@ -80,7 +68,7 @@ export async function updateEvent(
   if (endUtc <= startUtc) return false;
 
   const userId = await getCurrentUserId();
-  if (await hasOverlap(input, userId, id)) return false;
+  if (!(await canWriteToLabel(userId, labelId))) return false;
 
   await db.update(events).set({
     title:      title.trim(),
@@ -88,6 +76,7 @@ export async function updateEvent(
     endTime:    endUtc,
     labelId,
     recurrenceRule: recurrenceRule ?? null,
+    deletedAt:      null,
     syncStatus:     "pending_update",
     updatedAt:  Date.now(),
   }).where(and(eq(events.id, id), eq(events.userId, userId)));
@@ -101,6 +90,7 @@ export async function deleteEvent(id: string): Promise<void> {
   const userId = await getCurrentUserId();
   await db.update(events).set({
     syncStatus: "pending_delete",
+    deletedAt:  Date.now(),
     updatedAt:  Date.now(),
   }).where(and(eq(events.id, id), eq(events.userId, userId)));
 
