@@ -313,6 +313,60 @@ async function setCalendarLinkStatus(
     .eq("id", linkId);
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isGoogleReadonlyError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return (
+    message.includes("virtualCalendarManipulation") ||
+    message.includes("This calendar is read-only")
+  );
+}
+
+async function markCalendarLinkReadonly(
+  link: CalendarLink,
+  message: string,
+) {
+  const supabase = getAdminClient();
+  const now = new Date().toISOString();
+
+  await supabase
+    .from("google_calendar_links")
+    .update({
+      is_readonly: true,
+      watch_supported: false,
+      last_error: message,
+      updated_at: now,
+    })
+    .eq("id", link.id);
+
+  if (link.label_id) {
+    await supabase
+      .from("labels")
+      .update({
+        google_is_readonly: true,
+        updated_at: now,
+      })
+      .eq("id", link.label_id)
+      .eq("user_id", link.user_id);
+  } else {
+    await supabase
+      .from("labels")
+      .update({
+        google_is_readonly: true,
+        updated_at: now,
+      })
+      .eq("user_id", link.user_id)
+      .eq("google_calendar_id", link.google_calendar_id);
+  }
+
+  link.is_readonly = true;
+  link.watch_supported = false;
+  link.last_error = message;
+}
+
 export async function getConnectionStatus(userId: string): Promise<GoogleConnectionStatus> {
   const supabase = getAdminClient();
   const [{ data: connection }, { count }, { count: watchUnsupportedCount }, { count: failedCalendarCount }] = await Promise.all([
@@ -751,8 +805,12 @@ async function pushSupabaseLabelsToGoogle(userId: string) {
         })
         .eq("id", link.id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setCalendarLinkStatus(link.id, { last_error: message });
+      const message = getErrorMessage(error);
+      if (isGoogleReadonlyError(error)) {
+        await markCalendarLinkReadonly(link, message);
+      } else {
+        await setCalendarLinkStatus(link.id, { last_error: message });
+      }
     }
   }
 }
@@ -818,13 +876,18 @@ async function pushSupabaseEventsToGoogle(userId: string) {
 
     if (event.deleted_at) {
       if (event.google_event_id && event.google_calendar_id) {
+        const sourceLink = linksByCalendarId.get(event.google_calendar_id);
         try {
           await googleFetch(userId, `/calendars/${encodeURIComponent(event.google_calendar_id)}/events/${encodeURIComponent(event.google_event_id)}`, {
             method: "DELETE",
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = getErrorMessage(error);
           if (!message.includes("google_api_404") && !message.includes("google_api_410")) {
+            if (sourceLink && isGoogleReadonlyError(error)) {
+              await markCalendarLinkReadonly(sourceLink, message);
+              continue;
+            }
             throw error;
           }
         }
@@ -854,17 +917,27 @@ async function pushSupabaseEventsToGoogle(userId: string) {
     }
 
     const googlePayload = eventToGooglePayload(event);
-    const googleEvent = event.google_event_id
-      ? await googleFetch<GoogleEvent>(
-          userId,
-          `/calendars/${encodeURIComponent(targetCalendarId)}/events/${encodeURIComponent(event.google_event_id)}`,
-          { method: "PATCH", body: JSON.stringify(googlePayload) },
-        )
-      : await googleFetch<GoogleEvent>(
-          userId,
-          `/calendars/${encodeURIComponent(targetCalendarId)}/events`,
-          { method: "POST", body: JSON.stringify(googlePayload) },
-        );
+    let googleEvent: GoogleEvent;
+    try {
+      googleEvent = event.google_event_id
+        ? await googleFetch<GoogleEvent>(
+            userId,
+            `/calendars/${encodeURIComponent(targetCalendarId)}/events/${encodeURIComponent(event.google_event_id)}`,
+            { method: "PATCH", body: JSON.stringify(googlePayload) },
+          )
+        : await googleFetch<GoogleEvent>(
+            userId,
+            `/calendars/${encodeURIComponent(targetCalendarId)}/events`,
+            { method: "POST", body: JSON.stringify(googlePayload) },
+          );
+    } catch (error) {
+      const message = getErrorMessage(error);
+      if (isGoogleReadonlyError(error)) {
+        await markCalendarLinkReadonly(link, message);
+        continue;
+      }
+      throw error;
+    }
 
     await supabase
       .from("events")
