@@ -67,6 +67,7 @@ type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  deleted_at: string | null;
   updated_at: string;
 };
 
@@ -545,7 +546,6 @@ function googleEventToPayload(
     google_etag: event.etag ?? null,
     google_updated_at: googleUpdatedAt,
     deleted_at: deletedAt,
-    updated_at: googleUpdatedAt,
   };
 }
 
@@ -782,6 +782,20 @@ async function pushSupabaseEventsToGoogle(userId: string) {
     ]),
   );
 
+  const { data: linkRows, error: linkError } = await supabase
+    .from("google_calendar_links")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_enabled", true);
+
+  if (linkError) throw linkError;
+  const linksByCalendarId = new Map(
+    ((linkRows ?? []) as CalendarLink[]).map((link) => [
+      link.google_calendar_id,
+      link,
+    ]),
+  );
+
   for (const row of data ?? []) {
     const event = row as RemoteEvent;
     const label = event.label_id ? labelsById.get(event.label_id) : null;
@@ -790,9 +804,16 @@ async function pushSupabaseEventsToGoogle(userId: string) {
       : event.google_calendar_id;
     if (!targetCalendarId || label?.google_is_readonly) continue;
 
+    const link = linksByCalendarId.get(targetCalendarId);
+    if (!link || link.is_readonly) continue;
+
+    const lastCalendarSyncAt = link.last_sync_at
+      ? new Date(link.last_sync_at).getTime()
+      : 0;
     const changedAfterGoogle =
       !event.google_updated_at ||
-      new Date(event.updated_at).getTime() > new Date(event.google_updated_at).getTime();
+      !event.google_event_id ||
+      new Date(event.updated_at).getTime() > lastCalendarSyncAt;
     if (!changedAfterGoogle && !event.deleted_at) continue;
 
     if (event.deleted_at) {
@@ -813,7 +834,6 @@ async function pushSupabaseEventsToGoogle(userId: string) {
             google_event_id: null,
             google_etag: null,
             google_updated_at: new Date().toISOString(),
-            updated_at: event.updated_at,
           })
           .eq("id", event.id)
           .eq("user_id", userId);
@@ -853,7 +873,6 @@ async function pushSupabaseEventsToGoogle(userId: string) {
         google_calendar_id: targetCalendarId,
         google_etag: googleEvent.etag ?? null,
         google_updated_at: googleEvent.updated ?? new Date().toISOString(),
-        updated_at: googleEvent.updated ?? event.updated_at,
       })
       .eq("id", event.id)
       .eq("user_id", userId);
@@ -869,7 +888,7 @@ async function pullGoogleEventsForLink(userId: string, link: CalendarLink) {
   if (fullResync) {
     await supabase
       .from("events")
-      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({ deleted_at: new Date().toISOString() })
       .eq("user_id", userId)
       .eq("google_calendar_id", link.google_calendar_id)
       .not("google_event_id", "is", null);
@@ -896,7 +915,7 @@ async function pullGoogleEventsForLink(userId: string, link: CalendarLink) {
         fullResync = true;
         await supabase
           .from("events")
-          .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .update({ deleted_at: new Date().toISOString() })
           .eq("user_id", userId)
           .eq("google_calendar_id", link.google_calendar_id)
           .not("google_event_id", "is", null);
@@ -911,7 +930,6 @@ async function pullGoogleEventsForLink(userId: string, link: CalendarLink) {
           .from("events")
           .update({
             deleted_at: googleEvent.updated ?? new Date().toISOString(),
-            updated_at: googleEvent.updated ?? new Date().toISOString(),
             google_updated_at: googleEvent.updated ?? new Date().toISOString(),
           })
           .eq("user_id", userId)

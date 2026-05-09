@@ -7,6 +7,8 @@ import {
   deleteLabels, deleteEvents,
   fetchRemoteLabelChanges, fetchRemoteEventChanges,
   triggerGoogleSyncNow,
+  type RemoteEvent,
+  type RemoteLabel,
 } from './supabaseApi';
 import { getCurrentUserId } from '@/utils/storage';
 
@@ -22,6 +24,53 @@ async function setLastSync(userId: string, ts: number): Promise<void> {
   await AsyncStorage.setItem(`${LAST_SYNC_KEY}_${userId}`, String(ts));
 }
 
+function remoteTime(value: string | null | undefined): number {
+  return value ? new Date(value).getTime() : 0;
+}
+
+function maxRemoteUpdatedAt(
+  current: number,
+  rows: Array<{ updated_at: string }>,
+): number {
+  return rows.reduce(
+    (max, row) => Math.max(max, remoteTime(row.updated_at)),
+    current,
+  );
+}
+
+function labelPatchFromRemote(remote: RemoteLabel) {
+  return {
+    name: remote.name,
+    color: remote.color,
+    isVisible: remote.is_visible,
+    googleCalendarId: remote.google_calendar_id,
+    googleAccessRole: remote.google_access_role,
+    googleSyncEnabled: remote.google_sync_enabled,
+    googleIsReadonly: remote.google_is_readonly,
+    deletedAt: remoteTime(remote.deleted_at) || null,
+    updatedAt: remoteTime(remote.updated_at),
+  };
+}
+
+function eventPatchFromRemote(remote: RemoteEvent) {
+  return {
+    title: remote.title,
+    startTime: remoteTime(remote.start_time),
+    endTime: remoteTime(remote.end_time),
+    isAllDay: remote.is_all_day,
+    labelId: remote.label_id,
+    recurrenceRule: remote.recurrence_rule,
+    recurringEventId: remote.recurring_event_id,
+    originalStartTime: remoteTime(remote.original_start_time) || null,
+    googleEventId: remote.google_event_id,
+    googleCalendarId: remote.google_calendar_id,
+    googleEtag: remote.google_etag,
+    googleUpdatedAt: remoteTime(remote.google_updated_at) || null,
+    deletedAt: remoteTime(remote.deleted_at) || null,
+    updatedAt: remoteTime(remote.updated_at),
+  };
+}
+
 async function tryTriggerGoogleSyncNow(): Promise<void> {
   const now = Date.now();
   if (now - lastGoogleSyncAttemptAt < 5000) return;
@@ -29,13 +78,13 @@ async function tryTriggerGoogleSyncNow(): Promise<void> {
 
   try {
     await triggerGoogleSyncNow();
-  } catch {
-    // Google sync is best-effort; Supabase remains the retry queue.
+  } catch (error) {
+    console.warn('[sync] google sync trigger failed', error);
   }
 }
 
 // Flow B — push current user's pending local records to Supabase.
-// Fails silently when offline.
+// Fails gracefully when offline; pending rows stay queued locally.
 export async function pushChanges(): Promise<void> {
   try {
     const userId = await getCurrentUserId();
@@ -49,20 +98,34 @@ export async function pushChanges(): Promise<void> {
     const labelsToUpsert = pendingLabels.filter(l => l.syncStatus !== 'pending_delete');
 
     if (labelsToUpsert.length > 0) {
-      const syncedIds = await pushLabels(labelsToUpsert);
-      didPushRemoteChanges = syncedIds.size > 0;
-      for (const label of labelsToUpsert) {
-        if (syncedIds.has(label.id)) {
-          await db.update(labels)
-            .set({ syncStatus: 'synced' })
-            .where(and(eq(labels.id, label.id), eq(labels.userId, userId)));
-        }
+      const syncedLabels = await pushLabels(labelsToUpsert);
+      didPushRemoteChanges = syncedLabels.length > 0;
+      for (const remote of syncedLabels) {
+        await db.update(labels)
+          .set({
+            ...labelPatchFromRemote(remote),
+            syncStatus: 'synced',
+          })
+          .where(and(eq(labels.id, remote.id), eq(labels.userId, userId)));
       }
     }
     if (labelsToDelete.length > 0) {
-      await deleteLabels(labelsToDelete.map(l => l.id));
+      const deletedLabels = await deleteLabels(labelsToDelete.map(l => l.id));
       didPushRemoteChanges = true;
+      const remoteDeletedLabelIds = new Set(deletedLabels.map((label) => label.id));
+      for (const remote of deletedLabels) {
+        await db.update(events)
+          .set({
+            labelId: null,
+            syncStatus: 'synced',
+            updatedAt: remoteTime(remote.updated_at),
+          })
+          .where(and(eq(events.labelId, remote.id), eq(events.userId, userId)));
+        await db.delete(labels)
+          .where(and(eq(labels.id, remote.id), eq(labels.userId, userId)));
+      }
       for (const label of labelsToDelete) {
+        if (remoteDeletedLabelIds.has(label.id)) continue;
         await db.delete(labels)
           .where(and(eq(labels.id, label.id), eq(labels.userId, userId)));
       }
@@ -76,20 +139,27 @@ export async function pushChanges(): Promise<void> {
     const eventsToUpsert = pendingEvents.filter(e => e.syncStatus !== 'pending_delete');
 
     if (eventsToUpsert.length > 0) {
-      const syncedIds = await pushEvents(eventsToUpsert);
-      didPushRemoteChanges = didPushRemoteChanges || syncedIds.size > 0;
-      for (const event of eventsToUpsert) {
-        if (syncedIds.has(event.id)) {
-          await db.update(events)
-            .set({ syncStatus: 'synced' })
-            .where(and(eq(events.id, event.id), eq(events.userId, userId)));
-        }
+      const syncedEvents = await pushEvents(eventsToUpsert);
+      didPushRemoteChanges = didPushRemoteChanges || syncedEvents.length > 0;
+      for (const remote of syncedEvents) {
+        await db.update(events)
+          .set({
+            ...eventPatchFromRemote(remote),
+            syncStatus: 'synced',
+          })
+          .where(and(eq(events.id, remote.id), eq(events.userId, userId)));
       }
     }
     if (eventsToDelete.length > 0) {
-      await deleteEvents(eventsToDelete.map(e => e.id));
+      const deletedEvents = await deleteEvents(eventsToDelete.map(e => e.id));
       didPushRemoteChanges = true;
+      const remoteDeletedEventIds = new Set(deletedEvents.map((event) => event.id));
+      for (const remote of deletedEvents) {
+        await db.delete(events)
+          .where(and(eq(events.id, remote.id), eq(events.userId, userId)));
+      }
       for (const event of eventsToDelete) {
+        if (remoteDeletedEventIds.has(event.id)) continue;
         await db.delete(events)
           .where(and(eq(events.id, event.id), eq(events.userId, userId)));
       }
@@ -98,8 +168,8 @@ export async function pushChanges(): Promise<void> {
     if (didPushRemoteChanges) {
       await tryTriggerGoogleSyncNow();
     }
-  } catch {
-    // Fail silently — retried on next pushChanges() call
+  } catch (error) {
+    console.warn('[sync] push failed', error);
   }
 }
 
@@ -108,16 +178,35 @@ export async function pullChanges(): Promise<void> {
   try {
     const userId = await getCurrentUserId();
     const since = await getLastSync(userId);
-    const now = Date.now();
+    let nextLastSync = since;
 
     // ── Labels (pull first — events FK depends on labels) ───────────────────
     const remoteLabels = await fetchRemoteLabelChanges(since);
+    nextLastSync = maxRemoteUpdatedAt(nextLastSync, remoteLabels);
     for (const remote of remoteLabels) {
       if (remote.user_id !== userId) continue;
 
-      const remoteUpdatedAt = new Date(remote.updated_at).getTime();
+      const remoteUpdatedAt = remoteTime(remote.updated_at);
       const existing = await db.select().from(labels)
         .where(and(eq(labels.id, remote.id), eq(labels.userId, userId))).limit(1);
+
+      if (remote.deleted_at) {
+        if (
+          existing.length > 0 &&
+          (existing[0].syncStatus === 'synced' || existing[0].updatedAt <= remoteUpdatedAt)
+        ) {
+          await db.update(events)
+            .set({
+              labelId: null,
+              syncStatus: 'synced',
+              updatedAt: remoteUpdatedAt,
+            })
+            .where(and(eq(events.labelId, remote.id), eq(events.userId, userId)));
+          await db.delete(labels)
+            .where(and(eq(labels.id, remote.id), eq(labels.userId, userId)));
+        }
+        continue;
+      }
 
       if (existing.length === 0) {
         await db.insert(labels).values({
@@ -130,31 +219,24 @@ export async function pullChanges(): Promise<void> {
           googleAccessRole: remote.google_access_role,
           googleSyncEnabled: remote.google_sync_enabled,
           googleIsReadonly: remote.google_is_readonly,
+          deletedAt: null,
           syncStatus: 'synced',
           updatedAt: remoteUpdatedAt,
         });
       } else if (existing[0].syncStatus === 'synced' && existing[0].updatedAt < remoteUpdatedAt) {
         await db.update(labels)
-          .set({
-            name: remote.name,
-            color: remote.color,
-            isVisible: remote.is_visible,
-            googleCalendarId: remote.google_calendar_id,
-            googleAccessRole: remote.google_access_role,
-            googleSyncEnabled: remote.google_sync_enabled,
-            googleIsReadonly: remote.google_is_readonly,
-            updatedAt: remoteUpdatedAt,
-          })
+          .set(labelPatchFromRemote(remote))
           .where(and(eq(labels.id, remote.id), eq(labels.userId, userId)));
       }
     }
 
     // ── Events ───────────────────────────────────────────────────────────────
     const remoteEvents = await fetchRemoteEventChanges(since);
+    nextLastSync = maxRemoteUpdatedAt(nextLastSync, remoteEvents);
     for (const remote of remoteEvents) {
       if (remote.user_id !== userId) continue;
 
-      const remoteUpdatedAt = new Date(remote.updated_at).getTime();
+      const remoteUpdatedAt = remoteTime(remote.updated_at);
       const existing = await db.select().from(events)
         .where(and(eq(events.id, remote.id), eq(events.userId, userId))).limit(1);
 
@@ -173,49 +255,21 @@ export async function pullChanges(): Promise<void> {
         await db.insert(events).values({
           id: remote.id,
           userId: remote.user_id,
-          title: remote.title,
-          startTime: new Date(remote.start_time).getTime(),
-          endTime: new Date(remote.end_time).getTime(),
-          isAllDay: remote.is_all_day,
-          labelId: remote.label_id,
-          recurrenceRule: remote.recurrence_rule,
-          recurringEventId: remote.recurring_event_id,
-          originalStartTime: remote.original_start_time
-            ? new Date(remote.original_start_time).getTime() : null,
-          googleEventId: remote.google_event_id,
-          googleCalendarId: remote.google_calendar_id,
-          googleEtag: remote.google_etag,
-          googleUpdatedAt: remote.google_updated_at
-            ? new Date(remote.google_updated_at).getTime() : null,
-          deletedAt: null,
+          ...eventPatchFromRemote(remote),
           syncStatus: 'synced',
-          updatedAt: remoteUpdatedAt,
         });
       } else if (existing[0].syncStatus === 'synced' && existing[0].updatedAt < remoteUpdatedAt) {
         await db.update(events).set({
-          title: remote.title,
-          startTime: new Date(remote.start_time).getTime(),
-          endTime: new Date(remote.end_time).getTime(),
-          isAllDay: remote.is_all_day,
-          labelId: remote.label_id,
-          recurrenceRule: remote.recurrence_rule,
-          recurringEventId: remote.recurring_event_id,
-          originalStartTime: remote.original_start_time
-            ? new Date(remote.original_start_time).getTime() : null,
-          googleEventId: remote.google_event_id,
-          googleCalendarId: remote.google_calendar_id,
-          googleEtag: remote.google_etag,
-          googleUpdatedAt: remote.google_updated_at
-            ? new Date(remote.google_updated_at).getTime() : null,
-          deletedAt: null,
-          updatedAt: remoteUpdatedAt,
+          ...eventPatchFromRemote(remote),
         }).where(and(eq(events.id, remote.id), eq(events.userId, userId)));
       }
     }
 
-    await setLastSync(userId, now);
-  } catch {
-    // Fail silently
+    if (nextLastSync > since) {
+      await setLastSync(userId, nextLastSync);
+    }
+  } catch (error) {
+    console.warn('[sync] pull failed', error);
   }
 }
 

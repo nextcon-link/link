@@ -25,6 +25,7 @@ export type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  deleted_at: string | null;
   updated_at: string;
 };
 
@@ -49,7 +50,7 @@ export type RemoteEvent = {
 
 // ── Labels ──────────────────────────────────────────────────────────────────
 
-export async function pushLabels(rows: Label[]): Promise<Set<string>> {
+export async function pushLabels(rows: Label[]): Promise<RemoteLabel[]> {
   const payload = rows.map((l) => ({
     id: l.id,
     user_id: l.userId,
@@ -57,33 +58,39 @@ export async function pushLabels(rows: Label[]): Promise<Set<string>> {
     color: l.color,
     is_visible: l.isVisible,
     google_sync_enabled: l.googleSyncEnabled,
-    updated_at: new Date(l.updatedAt).toISOString(),
+    deleted_at: l.deletedAt ? new Date(l.deletedAt).toISOString() : null,
   }));
   const { data, error } = await supabase
     .from('labels')
     .upsert(payload, { onConflict: 'id' })
-    .select('id');
+    .select('*');
   if (error) throw error;
-  return new Set((data ?? []).map((r: { id: string }) => r.id));
+  return data ?? [];
 }
 
-export async function deleteLabels(ids: string[]): Promise<void> {
-  const { error } = await supabase.from('labels').delete().in('id', ids);
+export async function deleteLabels(ids: string[]): Promise<RemoteLabel[]> {
+  const { data, error } = await supabase
+    .from('labels')
+    .update({ deleted_at: new Date().toISOString() })
+    .in('id', ids)
+    .select('*');
   if (error) throw error;
+  return data ?? [];
 }
 
 export async function fetchRemoteLabelChanges(since: number): Promise<RemoteLabel[]> {
   const { data, error } = await supabase
     .from('labels')
     .select('*')
-    .gt('updated_at', new Date(since).toISOString());
+    .gt('updated_at', new Date(since).toISOString())
+    .order('updated_at', { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
-export async function pushEvents(rows: Event[]): Promise<Set<string>> {
+export async function pushEvents(rows: Event[]): Promise<RemoteEvent[]> {
   const payload = rows.map((e) => ({
     id: e.id,
     user_id: e.userId,
@@ -98,37 +105,68 @@ export async function pushEvents(rows: Event[]): Promise<Set<string>> {
       ? new Date(e.originalStartTime).toISOString()
       : null,
     deleted_at: e.deletedAt ? new Date(e.deletedAt).toISOString() : null,
-    updated_at: new Date(e.updatedAt).toISOString(),
   }));
   const { data, error } = await supabase
     .from('events')
     .upsert(payload, { onConflict: 'id' })
-    .select('id');
+    .select('*');
   if (error) throw error;
-  return new Set((data ?? []).map((r: { id: string }) => r.id));
+  return data ?? [];
 }
 
-export async function deleteEvents(ids: string[]): Promise<void> {
-  const now = new Date().toISOString();
-  const { error } = await supabase
+export async function deleteEvents(ids: string[]): Promise<RemoteEvent[]> {
+  const { data, error } = await supabase
     .from('events')
-    .update({ deleted_at: now, updated_at: now })
-    .in('id', ids);
+    .update({ deleted_at: new Date().toISOString() })
+    .in('id', ids)
+    .select('*');
   if (error) throw error;
+  return data ?? [];
 }
 
 export async function fetchRemoteEventChanges(since: number): Promise<RemoteEvent[]> {
   const { data, error } = await supabase
     .from('events')
     .select('*')
-    .gt('updated_at', new Date(since).toISOString());
+    .gt('updated_at', new Date(since).toISOString())
+    .order('updated_at', { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+async function getFunctionErrorDetail(error: unknown): Promise<string> {
+  const fallback = error instanceof Error ? error.message : String(error);
+  const context =
+    error && typeof error === 'object' && 'context' in error
+      ? (error.context as Response | Record<string, unknown> | undefined)
+      : undefined;
+
+  if (context instanceof Response) {
+    try {
+      const body = await context.clone().json();
+      return typeof body?.error === 'string' ? body.error : JSON.stringify(body);
+    } catch {
+      return context.clone().text().catch(() => fallback);
+    }
+  }
+
+  if (context) {
+    return JSON.stringify(context);
+  }
+
+  return fallback;
 }
 
 export async function triggerGoogleSyncNow(): Promise<void> {
   const { error } = await supabase.functions.invoke('google-sync-now', {
     body: { mode: 'sync' },
   });
-  if (error) throw error;
+  if (!error) return;
+
+  const detail = await getFunctionErrorDetail(error);
+  if (detail.includes('google_not_connected')) {
+    return;
+  }
+
+  throw new Error(detail);
 }

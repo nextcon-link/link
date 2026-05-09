@@ -20,6 +20,7 @@ create table if not exists public.labels (
   google_access_role text,
   google_sync_enabled boolean not null default false,
   google_is_readonly boolean not null default false,
+  deleted_at timestamptz,
   updated_at timestamptz not null default now(),
   unique (id, user_id)
 );
@@ -51,6 +52,7 @@ alter table public.labels add column if not exists google_calendar_id text;
 alter table public.labels add column if not exists google_access_role text;
 alter table public.labels add column if not exists google_sync_enabled boolean not null default false;
 alter table public.labels add column if not exists google_is_readonly boolean not null default false;
+alter table public.labels add column if not exists deleted_at timestamptz;
 alter table public.events add column if not exists google_calendar_id text;
 alter table public.events add column if not exists google_etag text;
 alter table public.events add column if not exists google_updated_at timestamptz;
@@ -109,6 +111,7 @@ create table if not exists public.friendships (
 
 create index if not exists labels_user_id_idx on public.labels(user_id);
 create index if not exists labels_updated_at_idx on public.labels(updated_at);
+create index if not exists labels_deleted_at_idx on public.labels(deleted_at);
 create index if not exists events_user_id_idx on public.events(user_id);
 create index if not exists events_updated_at_idx on public.events(updated_at);
 create index if not exists events_start_time_idx on public.events(start_time);
@@ -245,6 +248,35 @@ drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at
 before update on public.profiles
 for each row execute function public.set_updated_at();
+
+drop trigger if exists labels_set_updated_at on public.labels;
+create trigger labels_set_updated_at
+before insert or update on public.labels
+for each row execute function public.set_updated_at();
+
+drop trigger if exists events_set_updated_at on public.events;
+create trigger events_set_updated_at
+before insert or update on public.events
+for each row execute function public.set_updated_at();
+
+create or replace function public.clear_events_for_deleted_label()
+returns trigger as $$
+begin
+  if new.deleted_at is not null and old.deleted_at is distinct from new.deleted_at then
+    update public.events
+    set label_id = null
+    where user_id = new.user_id
+      and label_id = new.id
+      and deleted_at is null;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists labels_clear_events_on_soft_delete on public.labels;
+create trigger labels_clear_events_on_soft_delete
+after update of deleted_at on public.labels
+for each row execute function public.clear_events_for_deleted_label();
 
 create or replace function public.handle_new_user()
 returns trigger as $$

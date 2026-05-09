@@ -21,6 +21,7 @@ export default function RootLayout() {
         <Stack.Screen name="labels" />
         <Stack.Screen name="google" />
         <Stack.Screen name="friends" />
+        <Stack.Screen name="auth-callback" />
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
         <Stack.Screen name="modal" />

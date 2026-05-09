@@ -35,7 +35,11 @@ export default function HomeScreen() {
       .from(events)
       .leftJoin(
         labels,
-        and(eq(events.labelId, labels.id), eq(labels.userId, userId)),
+        and(
+          eq(events.labelId, labels.id),
+          eq(labels.userId, userId),
+          isNull(labels.deletedAt),
+        ),
       )
       .where(
         and(
@@ -76,6 +80,7 @@ export default function HomeScreen() {
         title: event.title,
         startTime: event.startTime,
         endTime: event.endTime,
+        isAllDay: event.isAllDay,
         color: event.labelColor,
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,

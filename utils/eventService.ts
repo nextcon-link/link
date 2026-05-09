@@ -1,5 +1,5 @@
 import { generateId } from "@/utils/uuid";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/database";
 import { events, labels } from "@/database/schema";
@@ -17,7 +17,7 @@ async function canWriteToLabel(
   const rows = await db
     .select({ googleIsReadonly: labels.googleIsReadonly })
     .from(labels)
-    .where(and(eq(labels.id, labelId), eq(labels.userId, userId)))
+    .where(and(eq(labels.id, labelId), eq(labels.userId, userId), isNull(labels.deletedAt)))
     .limit(1);
 
   return rows.length > 0 && !rows[0].googleIsReadonly;

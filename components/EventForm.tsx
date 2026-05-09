@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { Stack, useFocusEffect } from "expo-router";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { DAYS, formatDate } from "@/utils/date";
 import { db } from "@/database";
@@ -68,7 +68,11 @@ export default function EventForm({
     const rows = await db
       .select()
       .from(labels)
-      .where(and(eq(labels.userId, userId), ne(labels.syncStatus, "pending_delete")))
+      .where(and(
+        eq(labels.userId, userId),
+        ne(labels.syncStatus, "pending_delete"),
+        isNull(labels.deletedAt),
+      ))
       .orderBy(labels.name);
     setDbLabels(rows);
   }, [userId]);

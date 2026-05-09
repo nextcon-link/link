@@ -51,7 +51,11 @@ export default function SharedScreen() {
       .from(events)
       .leftJoin(
         labels,
-        and(eq(events.labelId, labels.id), eq(labels.userId, userId)),
+        and(
+          eq(events.labelId, labels.id),
+          eq(labels.userId, userId),
+          isNull(labels.deletedAt),
+        ),
       )
       .where(
         and(
@@ -94,6 +98,7 @@ export default function SharedScreen() {
         title: row.event.title,
         startTime: row.event.startTime,
         endTime: row.event.endTime,
+        isAllDay: row.event.isAllDay,
         color: row.label?.color ?? "#4A90E2",
         source: MY_CALENDAR_ID,
         editable: false,
@@ -106,6 +111,7 @@ export default function SharedScreen() {
         title: row.event.title,
         startTime: row.event.startTime,
         endTime: row.event.endTime,
+        isAllDay: row.event.isAllDay,
         color: row.bundle.color,
         source: row.bundle.id,
         editable: false,

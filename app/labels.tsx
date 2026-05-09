@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { router, Stack } from "expo-router";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { db } from "@/database";
 import { labels } from "@/database/schema";
@@ -42,7 +42,11 @@ export default function LabelsScreen() {
     db
       .select()
       .from(labels)
-      .where(and(eq(labels.userId, userId), ne(labels.syncStatus, "pending_delete")))
+      .where(and(
+        eq(labels.userId, userId),
+        ne(labels.syncStatus, "pending_delete"),
+        isNull(labels.deletedAt),
+      ))
       .orderBy(labels.name),
     [userId],
   );

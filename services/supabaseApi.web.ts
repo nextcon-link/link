@@ -42,6 +42,7 @@ export type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  deleted_at: string | null;
   updated_at: string;
 };
 
@@ -64,11 +65,13 @@ export type RemoteEvent = {
   deleted_at: string | null;
 };
 
-export async function pushLabels(_rows: Label[]): Promise<Set<string>> {
-  return new Set();
+export async function pushLabels(_rows: Label[]): Promise<RemoteLabel[]> {
+  return [];
 }
 
-export async function deleteLabels(_ids: string[]): Promise<void> {}
+export async function deleteLabels(_ids: string[]): Promise<RemoteLabel[]> {
+  return [];
+}
 
 export async function fetchRemoteLabelChanges(
   _since: number,
@@ -76,11 +79,13 @@ export async function fetchRemoteLabelChanges(
   return [];
 }
 
-export async function pushEvents(_rows: Event[]): Promise<Set<string>> {
-  return new Set();
+export async function pushEvents(_rows: Event[]): Promise<RemoteEvent[]> {
+  return [];
 }
 
-export async function deleteEvents(_ids: string[]): Promise<void> {}
+export async function deleteEvents(_ids: string[]): Promise<RemoteEvent[]> {
+  return [];
+}
 
 export async function fetchRemoteEventChanges(
   _since: number,

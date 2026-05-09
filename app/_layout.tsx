@@ -29,7 +29,10 @@ export default function RootLayout() {
     if (!isInitialized) return;
 
     const currentRoot = segments[0];
-    const isAuthRoute = currentRoot === 'login' || currentRoot === 'signup';
+    const isAuthRoute =
+      currentRoot === 'login' ||
+      currentRoot === 'signup' ||
+      currentRoot === 'auth-callback';
 
     if (!session && !isAuthRoute) {
       router.replace('/login');
@@ -85,6 +88,7 @@ export default function RootLayout() {
         <Stack.Screen name="labels" options={{ title: '라벨 관리' }} />
         <Stack.Screen name="google" options={{ title: 'Google Calendar' }} />
         <Stack.Screen name="friends" options={{ title: '친구' }} />
+        <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
         <Stack.Screen name="modal"  options={{ presentation: 'modal', title: 'Modal' }} />

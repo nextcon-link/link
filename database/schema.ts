@@ -11,6 +11,7 @@ export const labels = sqliteTable('labels', {
   googleAccessRole: text('google_access_role'),
   googleSyncEnabled: integer('google_sync_enabled', { mode: 'boolean' }).notNull().default(false),
   googleIsReadonly: integer('google_is_readonly', { mode: 'boolean' }).notNull().default(false),
+  deletedAt:  integer('deleted_at'),
   syncStatus: text('sync_status').notNull().default('pending_create'),
   updatedAt:  integer('updated_at').notNull(),
 });
