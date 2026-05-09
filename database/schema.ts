@@ -1,5 +1,5 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const labels = sqliteTable('labels', {
   id:         text('id').primaryKey(),
@@ -14,6 +14,7 @@ export const labels = sqliteTable('labels', {
   deletedAt:  integer('deleted_at'),
   syncStatus: text('sync_status').notNull().default('pending_create'),
   updatedAt:  integer('updated_at').notNull(),
+  sharingMode: text('sharing_mode').notNull().default('visible'),
 });
 
 export const events = sqliteTable('events', {
@@ -35,6 +36,7 @@ export const events = sqliteTable('events', {
   deletedAt:         integer('deleted_at'),
   syncStatus:        text('sync_status').notNull().default('pending_create'),
   updatedAt:         integer('updated_at').notNull(),
+  sharingMode:       text('sharing_mode').notNull().default('visible'),
 });
 
 export const sharedBundles = sqliteTable('shared_bundles', {

@@ -4,8 +4,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/database";
 import { events, labels } from "@/database/schema";
 import { pushChanges } from "@/services/syncEngine";
-import { getCurrentUserId } from "@/utils/storage";
 import type { LabelFormInput } from "@/utils/events";
+import { getCurrentUserId } from "@/utils/storage";
 
 export async function createLabel(input: LabelFormInput): Promise<void> {
   const userId = await getCurrentUserId();
@@ -19,6 +19,7 @@ export async function createLabel(input: LabelFormInput): Promise<void> {
     googleIsReadonly: false,
     syncStatus: "pending_create",
     updatedAt:  Date.now(),
+    sharingMode: input.sharingMode,
   });
   pushChanges();
 }
@@ -33,6 +34,7 @@ export async function updateLabel(
     color:      input.color,
     syncStatus: "pending_update",
     updatedAt:  Date.now(),
+    sharingMode: input.sharingMode,
   }).where(and(eq(labels.id, id), eq(labels.userId, userId), isNull(labels.deletedAt)));
   pushChanges();
 }

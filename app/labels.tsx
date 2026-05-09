@@ -1,3 +1,6 @@
+import { and, eq, isNull, ne } from "drizzle-orm";
+import { useLiveQuery } from "drizzle-orm/expo-sqlite";
+import { router, Stack } from "expo-router";
 import React, { useState } from "react";
 import {
   Pressable,
@@ -7,18 +10,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router, Stack } from "expo-router";
-import { useLiveQuery } from "drizzle-orm/expo-sqlite";
-import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { db } from "@/database";
 import { labels } from "@/database/schema";
 import { useAuthStore } from "@/store/auth";
+import { sharingMode } from "@/utils/events";
 import {
   createLabel,
-  updateLabel,
   deleteLabel,
   toggleLabelVisibility,
+  updateLabel,
 } from "@/utils/labelService";
 
 const PRESET_COLORS = [
@@ -30,10 +31,18 @@ const PRESET_COLORS = [
   "#E2874A", // 주황
 ];
 
+type VisibilityOption = { label: string, visibility: sharingMode }
+const VISIBILITY_LEVEL: VisibilityOption[] = [
+  {label:"공개",visibility:"visible"},
+  {label:"비공개",visibility:"invisible"},
+  {label:"부분 공개",visibility:"blind"},
+];
+
 export default function LabelsScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const [name, setName] = useState("");
   const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [sharingMode, setSharingMode] = useState<sharingMode>("visible")
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState(PRESET_COLORS[0]);
@@ -53,7 +62,7 @@ export default function LabelsScreen() {
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    await createLabel({ name, color });
+    await createLabel({ name, color, sharingMode });
     setName("");
     setColor(PRESET_COLORS[0]);
   };
@@ -66,7 +75,7 @@ export default function LabelsScreen() {
 
   const handleUpdate = async () => {
     if (!editingId || !editName.trim()) return;
-    await updateLabel(editingId, { name: editName, color: editColor });
+    await updateLabel(editingId, { name: editName, color: editColor, sharingMode: sharingMode });
     setEditingId(null);
   };
 
@@ -109,6 +118,23 @@ export default function LabelsScreen() {
             onPress={() => setColor(c)}
           />
         ))}
+      </View>
+      <Text style={styles.sectionLabel}>노출도 설정</Text>
+      <View style={styles.row}>
+        {VISIBILITY_LEVEL.map((opt) => {
+          const selected = sharingMode === opt.visibility;
+          return (
+            <Pressable
+              key={opt.label}
+              style={[styles.chip, selected && styles.chipSelected]}
+              onPress={() => setSharingMode(opt.visibility)}
+            >
+              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
       <Pressable style={styles.createButton} onPress={handleCreate}>
         <Text style={styles.createButtonText}>라벨 만들기</Text>
@@ -350,5 +376,36 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     color: "#FFF",
+  },
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+    chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    backgroundColor: "#FAFAFA",
+  },
+  chipSelected: {
+    backgroundColor: "#111",
+    borderColor: "#111",
+  },
+  chipDisabled: {
+    opacity: 0.45,
+  },
+  chipText: {
+    fontSize: 14,
+    color: "#333",
+  },
+  chipTextSelected: {
+    color: "#FFF",
+    fontWeight: "600",
   },
 });
