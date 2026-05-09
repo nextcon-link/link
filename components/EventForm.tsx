@@ -1,3 +1,5 @@
+import { and, eq, isNull, ne } from "drizzle-orm";
+import { Stack, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   Pressable,
@@ -7,18 +9,23 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Stack, useFocusEffect } from "expo-router";
-import { and, eq, isNull, ne } from "drizzle-orm";
 
-import { DAYS, formatDate } from "@/utils/date";
 import { db } from "@/database";
-import { labels } from "@/database/schema";
 import type { Label } from "@/database/schema";
-import type { EventFormInput } from "@/utils/events";
+import { labels } from "@/database/schema";
 import { useAuthStore } from "@/store/auth";
+import { DAYS, formatDate } from "@/utils/date";
+import { sharingMode, type EventFormInput } from "@/utils/events";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = [0, 10, 20, 30, 40, 50];
+
+type VisibilityOption = { label: string, visibility: sharingMode }
+const VISIBILITY_LEVEL: VisibilityOption[] = [
+  {label:"공개",visibility:"visible"},
+  {label:"비공개",visibility:"invisible"},
+  {label:"부분 공개",visibility:"blind"},
+];
 
 type RecurrenceOption = { label: string; rule: string | null };
 const RECURRENCE_OPTIONS: RecurrenceOption[] = [
@@ -57,6 +64,10 @@ export default function EventForm({
   const [recurrenceRule, setRecurrenceRule] = useState<string | null>(
     initialValue.recurrenceRule,
   );
+  const [sharingMode, setSharingMode] = useState<sharingMode>(
+    initialValue.sharingMode,
+  );
+
   const [dbLabels, setDbLabels] = useState<Label[]>([]);
 
   const refreshLabels = useCallback(async () => {
@@ -93,6 +104,7 @@ export default function EventForm({
       endMinute,
       labelId: selectedLabelId,
       recurrenceRule,
+      sharingMode,
     });
   };
 
@@ -254,6 +266,25 @@ export default function EventForm({
               );
             })}
           </View>
+        </View>
+
+        {/* 공개여부 설정 */}
+        <Text style={styles.sectionLabel}>노출도 설정</Text>
+        <View style={styles.row}>
+          {VISIBILITY_LEVEL.map((opt) => {
+            const selected = sharingMode === opt.visibility;
+            return (
+              <Pressable
+                key={opt.label}
+                style={[styles.chip, selected && styles.chipSelected]}
+                onPress={() => setSharingMode(opt.visibility)}
+              >
+                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* 반복 */}

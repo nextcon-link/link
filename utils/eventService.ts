@@ -5,8 +5,8 @@ import { db } from "@/database";
 import { events, labels } from "@/database/schema";
 import { pushChanges } from "@/services/syncEngine";
 import { toUtcMs } from "@/utils/datetime";
-import { getCurrentUserId } from "@/utils/storage";
 import type { EventFormInput } from "@/utils/events";
+import { getCurrentUserId } from "@/utils/storage";
 
 async function canWriteToLabel(
   userId: string,
@@ -59,7 +59,7 @@ export async function updateEvent(
   id: string,
   input: EventFormInput,
 ): Promise<boolean> {
-  const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule } = input;
+  const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule, sharingMode } = input;
 
   if (!title.trim()) return false;
 
@@ -79,6 +79,7 @@ export async function updateEvent(
     deletedAt:      null,
     syncStatus:     "pending_update",
     updatedAt:  Date.now(),
+    sharingMode: sharingMode,
   }).where(and(eq(events.id, id), eq(events.userId, userId)));
 
   pushChanges();

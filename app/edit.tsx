@@ -1,16 +1,16 @@
+import dayjs from "dayjs";
+import { and, eq, isNull } from "drizzle-orm";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { and, eq, isNull } from "drizzle-orm";
-import dayjs from "dayjs";
 
 import EventForm from "@/components/EventForm";
 import { db } from "@/database";
 import { events, labels } from "@/database/schema";
-import { updateEvent, deleteEvent } from "@/utils/eventService";
-import { getWeekDates, getWeekKey } from "@/utils/date";
-import type { EventFormInput } from "@/utils/events";
 import { useAuthStore } from "@/store/auth";
+import { getWeekDates, getWeekKey } from "@/utils/date";
+import type { EventFormInput, sharingMode } from "@/utils/events";
+import { deleteEvent, updateEvent } from "@/utils/eventService";
 
 export default function EditScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
@@ -53,6 +53,8 @@ export default function EditScreen() {
         endMinute:      endD.minute(),
         labelId:        event.labelId ?? null,
         recurrenceRule: event.recurrenceRule ?? null,
+        sharingMode:   (event.sharingMode as sharingMode) ?? "visible",
+        // db는 sharingMode가 순혈 Text로, TS에서는 유니온 타입이여서 강제 형변환 해준 겁니다.
       });
     }
 
