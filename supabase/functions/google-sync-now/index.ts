@@ -1,6 +1,7 @@
 import {
   corsHeaders,
   createGoogleAuthUrl,
+  disconnectGoogleForUser,
   getConnectionStatus,
   json,
   requireUser,
@@ -28,6 +29,11 @@ Deno.serve(async (req) => {
       return json({
         url: await createGoogleAuthUrl(userId, body.appRedirectTo),
       });
+    }
+
+    if (mode === "disconnect") {
+      await disconnectGoogleForUser(userId);
+      return json(await getConnectionStatus(userId));
     }
 
     await syncGoogleForUser(userId);

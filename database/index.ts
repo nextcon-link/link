@@ -19,6 +19,7 @@ try {
       google_access_role TEXT,
       google_sync_enabled INTEGER NOT NULL DEFAULT 0,
       google_is_readonly INTEGER NOT NULL DEFAULT 0,
+      deleted_at  INTEGER,
       sync_status TEXT NOT NULL DEFAULT 'pending_create',
       updated_at  INTEGER NOT NULL
     )`,
@@ -95,6 +96,7 @@ try {
     'google_is_readonly',
     'google_is_readonly INTEGER NOT NULL DEFAULT 0',
   );
+  addColumnIfMissing('labels', 'deleted_at', 'deleted_at INTEGER');
   addColumnIfMissing('events', 'google_calendar_id', 'google_calendar_id TEXT');
   addColumnIfMissing('events', 'google_etag', 'google_etag TEXT');
   addColumnIfMissing('events', 'google_updated_at', 'google_updated_at INTEGER');

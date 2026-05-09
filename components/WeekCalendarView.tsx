@@ -8,13 +8,20 @@ import {
   View,
 } from "react-native";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
 
 import { DAYS, formatDate, getWeekDates } from "@/utils/date";
+
+dayjs.extend(utc);
 
 const HOUR_HEIGHT = 70;
 const TIME_COLUMN_WIDTH = 44;
 const HORIZONTAL_PADDING = 24;
 const EVENT_GAP = 2;
+const ALL_DAY_EVENT_HEIGHT = 22;
+const ALL_DAY_EVENT_GAP = 3;
+const ALL_DAY_ROW_PADDING_VERTICAL = 4;
+const MAX_VISIBLE_ALL_DAY_EVENTS = 3;
 const DEFAULT_LAYOUT_GROUP_ID = "default";
 
 export type WeekCalendarEvent = {
@@ -22,6 +29,7 @@ export type WeekCalendarEvent = {
   title: string;
   startTime: number;
   endTime: number;
+  isAllDay?: boolean;
   color: string;
   opacity?: number;
   source?: string;
@@ -49,6 +57,37 @@ type LanePosition = {
   laneIndex: number;
   laneCount: number;
 };
+
+function isUtcMidnight(timestamp: number): boolean {
+  const date = new Date(timestamp);
+  return (
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0
+  );
+}
+
+function getAllDayDateRange(event: WeekCalendarEvent) {
+  if (isUtcMidnight(event.startTime) && isUtcMidnight(event.endTime)) {
+    const startDate = dayjs.utc(event.startTime).format("YYYY-MM-DD");
+    return {
+      startDate,
+      endDate:
+        event.endTime > event.startTime
+          ? dayjs.utc(event.endTime).subtract(1, "day").format("YYYY-MM-DD")
+          : startDate,
+    };
+  }
+
+  return {
+    startDate: dayjs(event.startTime).format("YYYY-MM-DD"),
+    endDate:
+      event.endTime > event.startTime
+        ? dayjs(event.endTime - 1).format("YYYY-MM-DD")
+        : dayjs(event.startTime).format("YYYY-MM-DD"),
+  };
+}
 
 function positionCluster(cluster: WeekCalendarEvent[]): LanePosition[] {
   const laneEnds: number[] = [];
@@ -119,10 +158,52 @@ export default function WeekCalendarView({
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
   const baseDate = weekDates[0];
   const dayWidth = (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING) / 7;
+  const allDayEventsByDay = useMemo(() => {
+    const buckets = Array.from(
+      { length: 7 },
+      () => [] as WeekCalendarEvent[],
+    );
+
+    for (const event of events) {
+      if (!event.isAllDay) continue;
+
+      const { startDate, endDate } = getAllDayDateRange(event);
+
+      weekDates.forEach((date, index) => {
+        const dayDate = formatDate(date);
+        if (dayDate >= startDate && dayDate <= endDate) {
+          buckets[index].push(event);
+        }
+      });
+    }
+
+    return buckets.map((bucket) =>
+      bucket.sort((a, b) => a.startTime - b.startTime || a.title.localeCompare(b.title)),
+    );
+  }, [events, weekDates]);
+  const hasAllDayEvents = allDayEventsByDay.some((dayEvents) => dayEvents.length > 0);
+  const allDayRowHeight = hasAllDayEvents
+    ? ALL_DAY_ROW_PADDING_VERTICAL * 2 +
+      Math.max(
+        ...allDayEventsByDay.map((dayEvents) =>
+          Math.min(dayEvents.length, MAX_VISIBLE_ALL_DAY_EVENTS),
+        ),
+      ) *
+        ALL_DAY_EVENT_HEIGHT +
+      (Math.max(
+        ...allDayEventsByDay.map((dayEvents) =>
+          Math.min(dayEvents.length, MAX_VISIBLE_ALL_DAY_EVENTS),
+        ),
+      ) -
+        1) *
+        ALL_DAY_EVENT_GAP
+    : 0;
   const positionedEvents = useMemo<PositionedEvent[]>(() => {
     const groups = new Map<string, WeekCalendarEvent[]>();
 
     for (const event of events) {
+      if (event.isAllDay) continue;
+
       const startD = dayjs(event.startTime);
       const eventDate = startD.format("YYYY-MM-DD");
       const eventDateIndex = weekDates.findIndex(
@@ -173,6 +254,52 @@ export default function WeekCalendarView({
           </View>
         ))}
       </View>
+
+      {hasAllDayEvents && (
+        <View style={[styles.allDayRow, { minHeight: allDayRowHeight }]}>
+          <View style={{ width: TIME_COLUMN_WIDTH }} />
+          {weekDates.map((date, index) => {
+            const dayEvents = allDayEventsByDay[index];
+            const visibleCount =
+              dayEvents.length > MAX_VISIBLE_ALL_DAY_EVENTS
+                ? MAX_VISIBLE_ALL_DAY_EVENTS - 1
+                : dayEvents.length;
+            const visibleEvents = dayEvents.slice(0, visibleCount);
+            const hiddenCount = dayEvents.length - visibleCount;
+
+            return (
+              <View
+                key={formatDate(date)}
+                style={[styles.allDayCell, { width: dayWidth }]}
+              >
+                {visibleEvents.map((event) => (
+                  <Pressable
+                    key={`${formatDate(date)}:${event.id}`}
+                    disabled={!onEventPress}
+                    onPress={() => onEventPress?.(event)}
+                    style={[
+                      styles.allDayPill,
+                      {
+                        backgroundColor: event.color,
+                        opacity: event.opacity ?? 1,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.allDayText} numberOfLines={1}>
+                      {event.title}
+                    </Text>
+                  </Pressable>
+                ))}
+                {hiddenCount > 0 && (
+                  <View style={styles.allDayMorePill}>
+                    <Text style={styles.allDayMoreText}>+{hiddenCount}</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       <ScrollView>
         <View style={styles.grid}>
@@ -250,6 +377,40 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 12,
+  },
+  allDayRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E6E6E6",
+    paddingVertical: ALL_DAY_ROW_PADDING_VERTICAL,
+  },
+  allDayCell: {
+    gap: ALL_DAY_EVENT_GAP,
+    paddingHorizontal: 2,
+  },
+  allDayPill: {
+    height: ALL_DAY_EVENT_HEIGHT,
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: 4,
+    paddingHorizontal: 4,
+  },
+  allDayText: {
+    color: "#FFF",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  allDayMorePill: {
+    height: ALL_DAY_EVENT_HEIGHT,
+    justifyContent: "center",
+    borderRadius: 4,
+    backgroundColor: "#F1F1F1",
+    paddingHorizontal: 4,
+  },
+  allDayMoreText: {
+    color: "#555",
+    fontSize: 10,
+    fontWeight: "700",
   },
   grid: {
     height: 24 * HOUR_HEIGHT,

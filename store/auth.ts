@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Linking from "expo-linking";
 import type { Session, User } from "@supabase/supabase-js";
 import { create } from "zustand";
 import { eq } from "drizzle-orm";
@@ -146,6 +147,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       email: email.trim(),
       password,
       options: {
+        emailRedirectTo: Linking.createURL("auth-callback"),
         data: {
           username: username.trim(),
           display_name: displayName.trim(),

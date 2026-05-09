@@ -11,6 +11,7 @@ import {
 
 import {
   connectGoogleCalendar,
+  disconnectGoogleCalendar,
   getGoogleConnectionStatus,
   syncGoogleCalendarNow,
   type GoogleConnectionStatus,
@@ -87,6 +88,23 @@ export default function GoogleCalendarScreen() {
     }
   };
 
+  const handleDisconnect = async () => {
+    setIsSubmitting(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const nextStatus = await disconnectGoogleCalendar();
+      setStatus(nextStatus);
+      await syncAll();
+      setMessage("Google Calendar 연결을 해제했습니다.");
+    } catch (e) {
+      setError(getErrorMessage(e, "Google Calendar 연결 해제에 실패했습니다."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <>
       <Stack.Screen options={{ title: "Google Calendar" }} />
@@ -108,6 +126,12 @@ export default function GoogleCalendarScreen() {
             </Text>
             <Text style={styles.statusMeta}>
               동기화된 캘린더 {status?.calendarCount ?? 0}개
+            </Text>
+            <Text style={styles.statusMeta}>
+              실시간 감지 미지원 {status?.watchUnsupportedCount ?? 0}개
+            </Text>
+            <Text style={styles.statusMeta}>
+              오류 캘린더 {status?.failedCalendarCount ?? 0}개
             </Text>
             <Text style={styles.statusMeta}>
               마지막 동기화 {formatStatusDate(status?.lastSyncAt ?? null)}
@@ -144,6 +168,17 @@ export default function GoogleCalendarScreen() {
           ]}
         >
           <Text style={styles.secondaryButtonText}>지금 동기화</Text>
+        </Pressable>
+
+        <Pressable
+          disabled={isSubmitting || !status?.isConnected}
+          onPress={handleDisconnect}
+          style={[
+            styles.dangerButton,
+            (isSubmitting || !status?.isConnected) && styles.disabledButton,
+          ]}
+        >
+          <Text style={styles.dangerButtonText}>연결 해제</Text>
         </Pressable>
       </ScrollView>
     </>
@@ -221,6 +256,19 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: "#111",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  dangerButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+    borderRadius: 10,
+    backgroundColor: "#D9534F",
+    marginTop: 10,
+  },
+  dangerButtonText: {
+    color: "#FFF",
     fontSize: 16,
     fontWeight: "700",
   },

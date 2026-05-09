@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import dayjs from "dayjs";
 
 import EventForm from "@/components/EventForm";
@@ -25,7 +25,11 @@ export default function EditScreen() {
         .from(events)
         .leftJoin(
           labels,
-          and(eq(events.labelId, labels.id), eq(labels.userId, userId)),
+          and(
+            eq(events.labelId, labels.id),
+            eq(labels.userId, userId),
+            isNull(labels.deletedAt),
+          ),
         )
         .where(and(eq(events.id, id), eq(events.userId, userId)))
         .limit(1);
