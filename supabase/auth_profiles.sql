@@ -20,8 +20,10 @@ create table if not exists public.labels (
   google_access_role text,
   google_sync_enabled boolean not null default false,
   google_is_readonly boolean not null default false,
+  sharing_mode text not null default 'visible',
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
+  check (sharing_mode in ('visible', 'invisible', 'blind')),
   unique (id, user_id)
 );
 
@@ -41,8 +43,10 @@ create table if not exists public.events (
   google_etag text,
   google_updated_at timestamptz,
   device_event_id text,
+  sharing_mode text not null default 'visible',
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
+  check (sharing_mode in ('visible', 'invisible', 'blind')),
   foreign key (label_id, user_id)
     references public.labels(id, user_id)
     on delete set null (label_id)
@@ -52,11 +56,54 @@ alter table public.labels add column if not exists google_calendar_id text;
 alter table public.labels add column if not exists google_access_role text;
 alter table public.labels add column if not exists google_sync_enabled boolean not null default false;
 alter table public.labels add column if not exists google_is_readonly boolean not null default false;
+alter table public.labels add column if not exists sharing_mode text not null default 'visible';
 alter table public.labels add column if not exists deleted_at timestamptz;
 alter table public.events add column if not exists google_calendar_id text;
 alter table public.events add column if not exists google_etag text;
 alter table public.events add column if not exists google_updated_at timestamptz;
+alter table public.events add column if not exists sharing_mode text not null default 'visible';
 alter table public.events add column if not exists deleted_at timestamptz;
+
+alter table public.labels alter column sharing_mode set default 'visible';
+alter table public.events alter column sharing_mode set default 'visible';
+
+update public.labels
+set sharing_mode = 'visible'
+where sharing_mode is null
+  or sharing_mode not in ('visible', 'invisible', 'blind');
+
+update public.events
+set sharing_mode = 'visible'
+where sharing_mode is null
+  or sharing_mode not in ('visible', 'invisible', 'blind');
+
+alter table public.labels alter column sharing_mode set not null;
+alter table public.events alter column sharing_mode set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'labels_sharing_mode_check'
+      and conrelid = 'public.labels'::regclass
+  ) then
+    alter table public.labels
+      add constraint labels_sharing_mode_check
+      check (sharing_mode in ('visible', 'invisible', 'blind'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'events_sharing_mode_check'
+      and conrelid = 'public.events'::regclass
+  ) then
+    alter table public.events
+      add constraint events_sharing_mode_check
+      check (sharing_mode in ('visible', 'invisible', 'blind'));
+  end if;
+end $$;
 
 create table if not exists public.google_connections (
   user_id uuid primary key references auth.users(id) on delete cascade,

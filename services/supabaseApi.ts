@@ -25,6 +25,7 @@ export type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  sharing_mode: string;
   deleted_at: string | null;
   updated_at: string;
 };
@@ -44,6 +45,7 @@ export type RemoteEvent = {
   google_calendar_id: string | null;
   google_etag: string | null;
   google_updated_at: string | null;
+  sharing_mode: string;
   updated_at: string;
   deleted_at: string | null;
 };
@@ -58,6 +60,7 @@ export async function pushLabels(rows: Label[]): Promise<RemoteLabel[]> {
     color: l.color,
     is_visible: l.isVisible,
     google_sync_enabled: l.googleSyncEnabled,
+    sharing_mode: l.sharingMode,
     deleted_at: l.deletedAt ? new Date(l.deletedAt).toISOString() : null,
   }));
   const { data, error } = await supabase
@@ -104,6 +107,7 @@ export async function pushEvents(rows: Event[]): Promise<RemoteEvent[]> {
     original_start_time: e.originalStartTime
       ? new Date(e.originalStartTime).toISOString()
       : null,
+    sharing_mode: e.sharingMode,
     deleted_at: e.deletedAt ? new Date(e.deletedAt).toISOString() : null,
   }));
   const { data, error } = await supabase

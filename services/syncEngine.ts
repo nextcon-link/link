@@ -47,6 +47,7 @@ function labelPatchFromRemote(remote: RemoteLabel) {
     googleAccessRole: remote.google_access_role,
     googleSyncEnabled: remote.google_sync_enabled,
     googleIsReadonly: remote.google_is_readonly,
+    sharingMode: remote.sharing_mode,
     deletedAt: remoteTime(remote.deleted_at) || null,
     updatedAt: remoteTime(remote.updated_at),
   };
@@ -66,6 +67,7 @@ function eventPatchFromRemote(remote: RemoteEvent) {
     googleCalendarId: remote.google_calendar_id,
     googleEtag: remote.google_etag,
     googleUpdatedAt: remoteTime(remote.google_updated_at) || null,
+    sharingMode: remote.sharing_mode,
     deletedAt: remoteTime(remote.deleted_at) || null,
     updatedAt: remoteTime(remote.updated_at),
   };
@@ -219,6 +221,7 @@ export async function pullChanges(): Promise<void> {
           googleAccessRole: remote.google_access_role,
           googleSyncEnabled: remote.google_sync_enabled,
           googleIsReadonly: remote.google_is_readonly,
+          sharingMode: remote.sharing_mode,
           deletedAt: null,
           syncStatus: 'synced',
           updatedAt: remoteUpdatedAt,

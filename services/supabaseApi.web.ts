@@ -42,6 +42,7 @@ export type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  sharing_mode: string;
   deleted_at: string | null;
   updated_at: string;
 };
@@ -61,6 +62,7 @@ export type RemoteEvent = {
   google_calendar_id: string | null;
   google_etag: string | null;
   google_updated_at: string | null;
+  sharing_mode: string;
   updated_at: string;
   deleted_at: string | null;
 };
