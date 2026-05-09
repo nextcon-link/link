@@ -10,10 +10,12 @@ export type GoogleConnectionStatus = {
   lastSyncAt: string | null;
   lastError: string | null;
   calendarCount: number;
+  watchUnsupportedCount: number;
+  failedCalendarCount: number;
 };
 
 async function invokeGoogleSync<T>(
-  mode: "status" | "auth-url" | "sync",
+  mode: "status" | "auth-url" | "sync" | "disconnect",
   payload: Record<string, unknown> = {},
 ): Promise<T> {
   const { data, error } = await supabase.functions.invoke("google-sync-now", {
@@ -73,4 +75,8 @@ export async function syncGoogleCalendarNow(): Promise<GoogleConnectionStatus> {
 
 export async function getGoogleConnectionStatus(): Promise<GoogleConnectionStatus> {
   return invokeGoogleSync<GoogleConnectionStatus>("status");
+}
+
+export async function disconnectGoogleCalendar(): Promise<GoogleConnectionStatus> {
+  return invokeGoogleSync<GoogleConnectionStatus>("disconnect");
 }

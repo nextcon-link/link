@@ -81,12 +81,22 @@ create table if not exists public.google_calendar_links (
   watch_channel_id text,
   watch_resource_id text,
   watch_expires_at timestamptz,
+  watch_supported boolean not null default true,
   is_enabled boolean not null default true,
   is_readonly boolean not null default false,
+  last_sync_at timestamptz,
+  last_error text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id, google_calendar_id)
 );
+
+alter table public.google_calendar_links add column if not exists watch_supported boolean not null default true;
+alter table public.google_calendar_links add column if not exists last_sync_at timestamptz;
+alter table public.google_calendar_links add column if not exists last_error text;
+update public.google_calendar_links
+set watch_supported = false
+where is_readonly = true;
 
 create table if not exists public.friendships (
   id uuid primary key default gen_random_uuid(),

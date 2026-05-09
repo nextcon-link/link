@@ -17,6 +17,8 @@ export type GoogleConnectionStatus = {
   lastSyncAt: string | null;
   lastError: string | null;
   calendarCount: number;
+  watchUnsupportedCount: number;
+  failedCalendarCount: number;
 };
 
 type GoogleConnection = {
@@ -28,6 +30,7 @@ type GoogleConnection = {
   is_connected: boolean;
   last_sync_at: string | null;
   last_error: string | null;
+  updated_at: string | null;
 };
 
 type GoogleOAuthState = {
@@ -48,8 +51,11 @@ type CalendarLink = {
   watch_channel_id: string | null;
   watch_resource_id: string | null;
   watch_expires_at: string | null;
+  watch_supported: boolean;
   is_enabled: boolean;
   is_readonly: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
 };
 
 type RemoteLabel = {
@@ -61,6 +67,7 @@ type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  updated_at: string;
 };
 
 type RemoteEvent = {
@@ -287,9 +294,27 @@ async function clearConnectionError(userId: string) {
     .eq("user_id", userId);
 }
 
+async function setCalendarLinkStatus(
+  linkId: string,
+  patch: {
+    watch_supported?: boolean;
+    last_sync_at?: string | null;
+    last_error?: string | null;
+  },
+) {
+  const supabase = getAdminClient();
+  await supabase
+    .from("google_calendar_links")
+    .update({
+      ...patch,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", linkId);
+}
+
 export async function getConnectionStatus(userId: string): Promise<GoogleConnectionStatus> {
   const supabase = getAdminClient();
-  const [{ data: connection }, { count }] = await Promise.all([
+  const [{ data: connection }, { count }, { count: watchUnsupportedCount }, { count: failedCalendarCount }] = await Promise.all([
     supabase
       .from("google_connections")
       .select("is_connected,last_sync_at,last_error")
@@ -298,7 +323,20 @@ export async function getConnectionStatus(userId: string): Promise<GoogleConnect
     supabase
       .from("google_calendar_links")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", userId),
+      .eq("user_id", userId)
+      .eq("is_enabled", true),
+    supabase
+      .from("google_calendar_links")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("is_enabled", true)
+      .eq("watch_supported", false),
+    supabase
+      .from("google_calendar_links")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("is_enabled", true)
+      .not("last_error", "is", null),
   ]);
 
   return {
@@ -306,6 +344,8 @@ export async function getConnectionStatus(userId: string): Promise<GoogleConnect
     lastSyncAt: connection?.last_sync_at ?? null,
     lastError: connection?.last_error ?? null,
     calendarCount: count ?? 0,
+    watchUnsupportedCount: watchUnsupportedCount ?? 0,
+    failedCalendarCount: failedCalendarCount ?? 0,
   };
 }
 
@@ -552,15 +592,16 @@ async function createGoogleCalendarForLabel(userId: string, label: RemoteLabel) 
     .eq("id", label.id)
     .eq("user_id", userId);
 
-  await supabase.from("google_calendar_links").upsert({
-    user_id: userId,
-    label_id: label.id,
-    google_calendar_id: calendar.id,
-    google_calendar_summary: calendar.summary,
-    google_access_role: "owner",
-    is_enabled: true,
-    is_readonly: false,
-    updated_at: new Date().toISOString(),
+    await supabase.from("google_calendar_links").upsert({
+      user_id: userId,
+      label_id: label.id,
+      google_calendar_id: calendar.id,
+      google_calendar_summary: calendar.summary,
+      google_access_role: "owner",
+      watch_supported: true,
+      is_enabled: true,
+      is_readonly: false,
+      updated_at: new Date().toISOString(),
   }, { onConflict: "user_id,google_calendar_id" });
 }
 
@@ -619,8 +660,10 @@ async function importGoogleCalendars(userId: string): Promise<CalendarLink[]> {
       google_calendar_id: calendar.id,
       google_calendar_summary: calendar.summary,
       google_access_role: accessRole,
+      watch_supported: !readonly,
       is_enabled: true,
       is_readonly: readonly,
+      last_error: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,google_calendar_id" });
   }
@@ -649,6 +692,68 @@ async function createCalendarsForLocalLabels(userId: string) {
 
   for (const label of (data ?? []) as RemoteLabel[]) {
     await createGoogleCalendarForLabel(userId, label);
+  }
+}
+
+async function pushSupabaseLabelsToGoogle(userId: string) {
+  const supabase = getAdminClient();
+  const { data: labelRows, error } = await supabase
+    .from("labels")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("google_sync_enabled", true)
+    .eq("google_is_readonly", false)
+    .not("google_calendar_id", "is", null);
+
+  if (error) throw error;
+
+  const { data: linkRows, error: linkError } = await supabase
+    .from("google_calendar_links")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_enabled", true);
+
+  if (linkError) throw linkError;
+  const linksByCalendarId = new Map(
+    ((linkRows ?? []) as CalendarLink[]).map((link) => [
+      link.google_calendar_id,
+      link,
+    ]),
+  );
+
+  for (const label of (labelRows ?? []) as RemoteLabel[]) {
+    if (!label.google_calendar_id) continue;
+    const link = linksByCalendarId.get(label.google_calendar_id);
+    if (!link || link.is_readonly) continue;
+
+    const labelUpdatedAt = new Date(label.updated_at).getTime();
+    const linkUpdatedAt = link.updated_at
+      ? new Date(link.updated_at).getTime()
+      : 0;
+    if (labelUpdatedAt <= linkUpdatedAt) continue;
+
+    try {
+      const calendar = await googleFetch<{ id: string; summary: string }>(
+        userId,
+        `/calendars/${encodeURIComponent(label.google_calendar_id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ summary: label.name }),
+        },
+      );
+
+      await supabase
+        .from("google_calendar_links")
+        .update({
+          google_calendar_summary: calendar.summary,
+          last_error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", link.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await setCalendarLinkStatus(link.id, { last_error: message });
+    }
   }
 }
 
@@ -692,9 +797,26 @@ async function pushSupabaseEventsToGoogle(userId: string) {
 
     if (event.deleted_at) {
       if (event.google_event_id && event.google_calendar_id) {
-        await googleFetch(userId, `/calendars/${encodeURIComponent(event.google_calendar_id)}/events/${encodeURIComponent(event.google_event_id)}`, {
-          method: "DELETE",
-        }).catch(() => null);
+        try {
+          await googleFetch(userId, `/calendars/${encodeURIComponent(event.google_calendar_id)}/events/${encodeURIComponent(event.google_event_id)}`, {
+            method: "DELETE",
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!message.includes("google_api_404") && !message.includes("google_api_410")) {
+            throw error;
+          }
+        }
+        await supabase
+          .from("events")
+          .update({
+            google_event_id: null,
+            google_etag: null,
+            google_updated_at: new Date().toISOString(),
+            updated_at: event.updated_at,
+          })
+          .eq("id", event.id)
+          .eq("user_id", userId);
       }
       continue;
     }
@@ -843,7 +965,18 @@ async function pullGoogleEventsForLink(userId: string, link: CalendarLink) {
 
 async function pullGoogleEvents(userId: string, links: CalendarLink[]) {
   for (const link of links) {
-    await pullGoogleEventsForLink(userId, link);
+    try {
+      await pullGoogleEventsForLink(userId, link);
+      await setCalendarLinkStatus(link.id, {
+        last_sync_at: new Date().toISOString(),
+        last_error: null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await setCalendarLinkStatus(link.id, {
+        last_error: message,
+      });
+    }
   }
 }
 
@@ -855,7 +988,15 @@ export async function ensureGoogleWatches(userId: string, links: CalendarLink[])
   const renewBefore = Date.now() + 24 * 60 * 60 * 1000;
 
   for (const link of links) {
-    if (link.is_readonly) continue;
+    if (link.is_readonly) {
+      if (link.watch_supported) {
+        await setCalendarLinkStatus(link.id, {
+          watch_supported: false,
+          last_error: null,
+        });
+      }
+      continue;
+    }
 
     if (link.watch_expires_at && new Date(link.watch_expires_at).getTime() > renewBefore) {
       continue;
@@ -894,6 +1035,8 @@ export async function ensureGoogleWatches(userId: string, links: CalendarLink[])
             watch_channel_id: null,
             watch_resource_id: null,
             watch_expires_at: null,
+            watch_supported: false,
+            last_error: null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", link.id);
@@ -910,6 +1053,8 @@ export async function ensureGoogleWatches(userId: string, links: CalendarLink[])
         watch_expires_at: watch.expiration
           ? new Date(Number(watch.expiration)).toISOString()
           : null,
+        watch_supported: true,
+        last_error: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", link.id);
@@ -920,6 +1065,9 @@ export async function syncGoogleForUser(userId: string) {
   try {
     await runSyncStep(userId, "create_local_label_calendars", () =>
       createCalendarsForLocalLabels(userId),
+    );
+    await runSyncStep(userId, "push_labels_to_google", () =>
+      pushSupabaseLabelsToGoogle(userId),
     );
     const links = await importGoogleCalendars(userId).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -958,23 +1106,72 @@ export async function syncGoogleForChannel(channelId: string) {
   await clearConnectionError(calendarLink.user_id);
 }
 
-export async function renewDueWatches() {
+export async function disconnectGoogleForUser(userId: string) {
   const supabase = getAdminClient();
-  const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("google_calendar_links")
     .select("*")
-    .eq("is_enabled", true)
-    .or(`watch_expires_at.is.null,watch_expires_at.lt.${cutoff}`);
+    .eq("user_id", userId)
+    .eq("is_enabled", true);
 
   if (error) throw error;
 
-  const byUser = new Map<string, CalendarLink[]>();
   for (const link of (data ?? []) as CalendarLink[]) {
-    byUser.set(link.user_id, [...(byUser.get(link.user_id) ?? []), link]);
+    if (!link.watch_channel_id || !link.watch_resource_id) continue;
+    await googleFetch(userId, "/channels/stop", {
+      method: "POST",
+      body: JSON.stringify({
+        id: link.watch_channel_id,
+        resourceId: link.watch_resource_id,
+      }),
+    }).catch(() => null);
   }
 
-  for (const [userId, links] of byUser) {
-    await ensureGoogleWatches(userId, links);
+  const now = new Date().toISOString();
+  await supabase
+    .from("google_connections")
+    .update({
+      access_token: null,
+      refresh_token: null,
+      expires_at: null,
+      is_connected: false,
+      last_error: null,
+      updated_at: now,
+    })
+    .eq("user_id", userId);
+
+  await supabase
+    .from("google_calendar_links")
+    .update({
+      is_enabled: false,
+      watch_channel_id: null,
+      watch_resource_id: null,
+      watch_expires_at: null,
+      last_error: null,
+      updated_at: now,
+    })
+    .eq("user_id", userId);
+
+  await supabase
+    .from("labels")
+    .update({
+      google_sync_enabled: false,
+      updated_at: now,
+    })
+    .eq("user_id", userId)
+    .not("google_calendar_id", "is", null);
+}
+
+export async function renewDueWatches() {
+  const supabase = getAdminClient();
+  const { data, error } = await supabase
+    .from("google_connections")
+    .select("user_id")
+    .eq("is_connected", true);
+
+  if (error) throw error;
+
+  for (const row of data ?? []) {
+    await syncGoogleForUser(row.user_id as string);
   }
 }

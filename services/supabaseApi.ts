@@ -56,10 +56,7 @@ export async function pushLabels(rows: Label[]): Promise<Set<string>> {
     name: l.name,
     color: l.color,
     is_visible: l.isVisible,
-    google_calendar_id: l.googleCalendarId,
-    google_access_role: l.googleAccessRole,
     google_sync_enabled: l.googleSyncEnabled,
-    google_is_readonly: l.googleIsReadonly,
     updated_at: new Date(l.updatedAt).toISOString(),
   }));
   const { data, error } = await supabase

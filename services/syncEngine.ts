@@ -12,6 +12,7 @@ import { getCurrentUserId } from '@/utils/storage';
 
 const LAST_SYNC_KEY = 'last_sync_timestamp';
 let lastGoogleSyncAttemptAt = 0;
+let lastPullAttemptAt = 0;
 
 async function getLastSync(userId: string): Promise<number> {
   const val = await AsyncStorage.getItem(`${LAST_SYNC_KEY}_${userId}`);
@@ -216,6 +217,14 @@ export async function pullChanges(): Promise<void> {
   } catch {
     // Fail silently
   }
+}
+
+export async function pollRemoteChanges(): Promise<void> {
+  const now = Date.now();
+  if (now - lastPullAttemptAt < 15000) return;
+  lastPullAttemptAt = now;
+
+  await pullChanges();
 }
 
 export async function syncAll(): Promise<void> {

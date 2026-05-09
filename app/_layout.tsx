@@ -2,11 +2,11 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, AppState, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { syncAll } from '@/services/syncEngine';
+import { pollRemoteChanges, syncAll } from '@/services/syncEngine';
 import { useAuthStore } from '@/store/auth';
 
 export const unstable_settings = {
@@ -45,6 +45,27 @@ export default function RootLayout() {
     if (session) {
       syncAll();
     }
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const interval = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        pollRemoteChanges();
+      }
+    }, 30000);
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        syncAll();
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [session]);
 
   if (!isInitialized) {
