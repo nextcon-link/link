@@ -21,7 +21,8 @@ try {
       google_is_readonly INTEGER NOT NULL DEFAULT 0,
       deleted_at  INTEGER,
       sync_status TEXT NOT NULL DEFAULT 'pending_create',
-      updated_at  INTEGER NOT NULL
+      updated_at  INTEGER NOT NULL,
+      sharing_mode TEXT NOT NULL CHECK (sharing_mode IN ('visible', 'invisible', 'blind')) DEFAULT 'visible'
     )`,
   );
   expo.runSync(
@@ -43,7 +44,8 @@ try {
       device_event_id     TEXT,
       deleted_at          INTEGER,
       sync_status         TEXT NOT NULL DEFAULT 'pending_create',
-      updated_at          INTEGER NOT NULL
+      updated_at          INTEGER NOT NULL,
+      sharing_mode        TEXT NOT NULL CHECK (sharing_mode IN ('visible', 'invisible', 'blind')) DEFAULT 'visible'
     )`,
   );
   expo.runSync(
@@ -101,6 +103,9 @@ try {
   addColumnIfMissing('events', 'google_etag', 'google_etag TEXT');
   addColumnIfMissing('events', 'google_updated_at', 'google_updated_at INTEGER');
   addColumnIfMissing('events', 'deleted_at', 'deleted_at INTEGER');
+  //새로 추가한 코드라 밑에 놔뒀습니다. 확인후 위치끼리 묶어줘도 됩니다.
+  addColumnIfMissing('labels', 'sharing_mode', "sharing_mode TEXT NOT NULL CHECK (sharing_mode IN ('visible', 'invisible', 'blind')) DEFAULT 'visible'")
+  addColumnIfMissing('events', 'sharing_mode', "sharing_mode ㄱTEXT NOT NULL CHECK (sharing_mode IN ('visible', 'invisible', 'blind')) DEFAULT 'visible'")
 } catch (e) {
   console.error('[DB] sync init error:', e);
 }
