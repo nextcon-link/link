@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams, type Href } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
@@ -23,6 +24,7 @@ const MAIN_CALENDAR_LAYOUT_GROUP_ID = "main-calendar";
 
 export default function HomeScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
+  const signOut = useAuthStore((state) => state.signOut);
   const { date, week } = useLocalSearchParams();
   const weekKey = week ? String(week) : getCurrentWeekKey();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
@@ -47,7 +49,7 @@ export default function HomeScreen() {
     () =>
       `${selectedDate.getFullYear()}. ${String(
         selectedDate.getMonth() + 1,
-      ).padStart(2, "0")}. ${String(selectedDate.getDate()).padStart(2, "0")}.`,
+      ).padStart(2, "0")}. ${String(selectedDate.getDate()).padStart(2, "0")}`,
     [selectedDate],
   );
 
@@ -155,6 +157,11 @@ export default function HomeScreen() {
     [mergedEvents],
   );
 
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace("/login");
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
@@ -164,6 +171,47 @@ export default function HomeScreen() {
         >
           <Text style={styles.dateButtonText}>{selectedDateLabel}</Text>
         </Pressable>
+
+        <View style={styles.topActions}>
+          <Pressable
+            accessibilityLabel="일정 추가"
+            style={styles.iconButton}
+            onPress={() =>
+              router.push({ pathname: "/add", params: { week: weekKey } })
+            }
+          >
+            <MaterialCommunityIcons name="plus" size={32} color="#1B1B20" />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="라벨 추가"
+            style={styles.iconButton}
+            onPress={() => router.push("/labels")}
+          >
+            <MaterialCommunityIcons
+              name="tag-plus-outline"
+              size={28}
+              color="#1B1B20"
+            />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="친구"
+            style={styles.iconButton}
+            onPress={() => router.push("/friends" as Href)}
+          >
+            <MaterialCommunityIcons
+              name="account-group"
+              size={29}
+              color="#1B1B20"
+            />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="로그아웃"
+            style={styles.iconButton}
+            onPress={handleSignOut}
+          >
+            <MaterialCommunityIcons name="logout" size={29} color="#1B1B20" />
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.calendarShell}>
@@ -180,27 +228,6 @@ export default function HomeScreen() {
         />
       </View>
 
-      <Pressable
-        style={styles.fab}
-        onPress={() =>
-          router.push({ pathname: "/add", params: { week: weekKey } })
-        }
-      >
-        <Text style={styles.buttonText}>+</Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.labelBtn}
-        onPress={() => router.push("/labels")}
-      >
-        <Text style={styles.buttonText}>라벨</Text>
-      </Pressable>
-      <Pressable
-        style={styles.friendBtn}
-        onPress={() => router.push("/friends" as Href)}
-      >
-        <Text style={styles.buttonText}>친구</Text>
-      </Pressable>
     </View>
   );
 }
@@ -212,12 +239,17 @@ const styles = StyleSheet.create({
   },
   topBar: {
     height: 116,
+    flexDirection: "row",
+    alignItems: "flex-end",
     justifyContent: "flex-end",
-    paddingHorizontal: 52,
+    gap: 18,
+    paddingLeft: 52,
+    paddingRight: 40,
     paddingBottom: 18,
   },
   dateButton: {
-    alignSelf: "flex-start",
+    flex: 1,
+    minWidth: 0,
   },
   dateButtonText: {
     color: "#05070A",
@@ -225,32 +257,20 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0,
   },
+  topActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 11,
+    paddingBottom: 2,
+  },
+  iconButton: {
+    width: 31,
+    height: 31,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   calendarShell: {
     flex: 1,
-  },
-  fab: {
-    position: "absolute",
-    bottom: 30,
-    right: 20,
-    backgroundColor: "black",
-    padding: 15,
-    borderRadius: 50,
-  },
-  labelBtn: {
-    position: "absolute",
-    bottom: 30,
-    left: 20,
-    backgroundColor: "black",
-    padding: 10,
-  },
-  friendBtn: {
-    position: "absolute",
-    bottom: 30,
-    left: 75,
-    backgroundColor: "black",
-    padding: 10,
-  },
-  buttonText: {
-    color: "white",
   },
 });
