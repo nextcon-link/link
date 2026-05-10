@@ -8,7 +8,12 @@ import dayjs from "dayjs";
 import WeekCalendarView, {
   type WeekCalendarEvent,
 } from "@/components/WeekCalendarView";
-import { getCurrentWeekKey, getWeekDates } from "@/utils/date";
+import {
+  formatDate,
+  getCurrentWeekKey,
+  getWeekDates,
+  parseDate,
+} from "@/utils/date";
 import { db } from "@/database";
 import { events, labels } from "@/database/schema";
 import { getMergedEvents, type MergedEvent, type EventWithLabel } from "@/services/deviceSync";
@@ -18,9 +23,33 @@ const MAIN_CALENDAR_LAYOUT_GROUP_ID = "main-calendar";
 
 export default function HomeScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
-  const { week } = useLocalSearchParams();
+  const { date, week } = useLocalSearchParams();
   const weekKey = week ? String(week) : getCurrentWeekKey();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
+  const selectedDate = useMemo(() => {
+    const routeDate = typeof date === "string" ? parseDate(date) : null;
+    const routeDateKey = routeDate ? formatDate(routeDate) : "";
+    const isRouteDateInWeek = weekDates.some(
+      (weekDate) => formatDate(weekDate) === routeDateKey,
+    );
+
+    if (routeDate && isRouteDateInWeek) return routeDate;
+
+    const today = new Date();
+    const todayKey = formatDate(today);
+    const isTodayInWeek = weekDates.some(
+      (weekDate) => formatDate(weekDate) === todayKey,
+    );
+
+    return isTodayInWeek ? today : weekDates[0];
+  }, [date, weekDates]);
+  const selectedDateLabel = useMemo(
+    () =>
+      `${selectedDate.getFullYear()}. ${String(
+        selectedDate.getMonth() + 1,
+      ).padStart(2, "0")}. ${String(selectedDate.getDate()).padStart(2, "0")}.`,
+    [selectedDate],
+  );
 
   const weekStart = dayjs(weekDates[0]).startOf("day").valueOf();
   const weekEnd   = dayjs(weekDates[6]).endOf("day").valueOf();
@@ -114,7 +143,7 @@ export default function HomeScreen() {
         startTime: event.startTime,
         endTime: event.endTime,
         isAllDay: event.isAllDay,
-        color: event.labelColor,
+        color: event.labelColor ?? "#9FF4E2",
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,
         editable: event.source === "local" && !event.isReadonly,
@@ -125,17 +154,28 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <WeekCalendarView
-        weekKey={weekKey}
-        events={calendarEvents}
-        onEventPress={(event) => {
-          if (!event.editable) return;
-          router.push({
-            pathname: "/edit",
-            params: { id: event.id, week: weekKey },
-          });
-        }}
-      />
+      <View style={styles.topBar}>
+        <Pressable
+          style={styles.dateButton}
+          onPress={() => router.push("/calendar")}
+        >
+          <Text style={styles.dateButtonText}>{selectedDateLabel}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.calendarShell}>
+        <WeekCalendarView
+          weekKey={weekKey}
+          events={calendarEvents}
+          onEventPress={(event) => {
+            if (!event.editable) return;
+            router.push({
+              pathname: "/edit",
+              params: { id: event.id, week: weekKey },
+            });
+          }}
+        />
+      </View>
 
       <Pressable
         style={styles.fab}
@@ -146,12 +186,6 @@ export default function HomeScreen() {
         <Text style={styles.buttonText}>+</Text>
       </Pressable>
 
-      <Pressable
-        style={styles.calendarBtn}
-        onPress={() => router.push("/calendar")}
-      >
-        <Text style={styles.buttonText}>달력</Text>
-      </Pressable>
       <Pressable
         style={styles.labelBtn}
         onPress={() => router.push("/labels")}
@@ -173,6 +207,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
+  topBar: {
+    height: 116,
+    justifyContent: "flex-end",
+    paddingHorizontal: 52,
+    paddingBottom: 18,
+  },
+  dateButton: {
+    alignSelf: "flex-start",
+  },
+  dateButtonText: {
+    color: "#05070A",
+    fontSize: 27,
+    fontWeight: "800",
+    letterSpacing: 0,
+  },
+  calendarShell: {
+    flex: 1,
+  },
   fab: {
     position: "absolute",
     bottom: 30,
@@ -181,24 +233,17 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 50,
   },
-  calendarBtn: {
+  labelBtn: {
     position: "absolute",
     bottom: 30,
     left: 20,
     backgroundColor: "black",
     padding: 10,
   },
-  labelBtn: {
-    position: "absolute",
-    bottom: 30,
-    left: 75,
-    backgroundColor: "black",
-    padding: 10,
-  },
   friendBtn: {
     position: "absolute",
     bottom: 30,
-    left: 130,
+    left: 75,
     backgroundColor: "black",
     padding: 10,
   },

@@ -21,7 +21,7 @@ export async function getMergedEvents(
       endTime: e.endTime,
       isAllDay: e.isAllDay,
       source: 'local' as const,
-      labelColor: e.label?.color ?? '#4A90E2',
+      labelColor: e.label?.color ?? '#9FF4E2',
       isReadonly: e.label?.googleIsReadonly ?? false,
       syncStatus: e.syncStatus,
     }));

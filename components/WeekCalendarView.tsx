@@ -14,7 +14,10 @@ import { DAYS, formatDate, getWeekDates } from "@/utils/date";
 
 dayjs.extend(utc);
 
-const HOUR_HEIGHT = 70;
+const START_HOUR = 0;
+const END_HOUR = 24;
+const VISIBLE_HOURS = END_HOUR - START_HOUR;
+const HOUR_HEIGHT = 72;
 const TIME_COLUMN_WIDTH = 44;
 const HORIZONTAL_PADDING = 24;
 const EVENT_GAP = 2;
@@ -156,8 +159,8 @@ export default function WeekCalendarView({
 }: Props) {
   const { width } = useWindowDimensions();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
-  const baseDate = weekDates[0];
-  const dayWidth = (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING) / 7;
+  const dayWidth =
+    (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING * 2) / 7;
   const allDayEventsByDay = useMemo(() => {
     const buckets = Array.from(
       { length: 7 },
@@ -241,15 +244,11 @@ export default function WeekCalendarView({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>
-        {baseDate.getFullYear()}년 {baseDate.getMonth() + 1}월
-      </Text>
-
       <View style={styles.headerRow}>
         <View style={{ width: TIME_COLUMN_WIDTH }} />
         {DAYS.map((day, i) => (
           <View key={day} style={[styles.dayHeader, { width: dayWidth }]}>
-            <Text>{day}</Text>
+            <Text style={styles.dayText}>{day}</Text>
             <Text style={styles.dateText}>{weekDates[i].getDate()}</Text>
           </View>
         ))}
@@ -303,12 +302,22 @@ export default function WeekCalendarView({
 
       <ScrollView>
         <View style={styles.grid}>
-          {Array.from({ length: 25 }).map((_, i) => (
+          {Array.from({ length: 8 }).map((_, i) => (
+            <View
+              key={`column-${i}`}
+              style={[
+                styles.dayLine,
+                { left: TIME_COLUMN_WIDTH + i * dayWidth },
+              ]}
+            />
+          ))}
+
+          {Array.from({ length: VISIBLE_HOURS + 1 }).map((_, i) => (
             <React.Fragment key={i}>
               <View style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
-              {i < 24 && (
+              {i < VISIBLE_HOURS && (
                 <Text style={[styles.hourText, { top: i * HOUR_HEIGHT + 4 }]}>
-                  {i.toString().padStart(2, "0")}
+                  {formatHourLabel(START_HOUR + i)}
                 </Text>
               )}
             </React.Fragment>
@@ -323,6 +332,11 @@ export default function WeekCalendarView({
           {positionedEvents.map((event) => {
             const laneWidth = dayWidth / event.laneCount;
             const laneGap = event.laneCount > 1 ? EVENT_GAP : 0;
+            const visibleStartHour = Math.max(event.startHour, START_HOUR);
+            const visibleEndHour = Math.min(event.endHour, END_HOUR);
+            const isVisible = visibleEndHour > visibleStartHour;
+
+            if (!isVisible) return null;
 
             return (
               <Pressable
@@ -332,23 +346,23 @@ export default function WeekCalendarView({
                 style={[
                   styles.eventBlock,
                   {
-                    backgroundColor: event.color,
-                    top: event.startHour * HOUR_HEIGHT,
-                    height: Math.max((event.endHour - event.startHour) * HOUR_HEIGHT, 20),
+                    backgroundColor: getEventFill(event.color),
+                    top: (visibleStartHour - START_HOUR) * HOUR_HEIGHT + 8,
+                    height: Math.max(
+                      (visibleEndHour - visibleStartHour) * HOUR_HEIGHT - 16,
+                      50,
+                    ),
                     left:
                       TIME_COLUMN_WIDTH +
                       event.eventDateIndex * dayWidth +
                       event.laneIndex * laneWidth +
-                      laneGap / 2,
-                    width: Math.max(laneWidth - laneGap, 8),
+                      laneGap / 2 +
+                      1,
+                    width: Math.max(laneWidth - laneGap - 2, 8),
                     opacity: event.opacity ?? 1,
                   },
                 ]}
-              >
-                <Text style={styles.eventText} numberOfLines={2}>
-                  {event.title}
-                </Text>
-              </Pressable>
+              />
             );
           })}
         </View>
@@ -357,26 +371,45 @@ export default function WeekCalendarView({
   );
 }
 
+function formatHourLabel(hour: number) {
+  if (hour === 0) return "12 AM";
+  if (hour < 12) return `${hour} AM`;
+  if (hour === 12) return "12 PM";
+  return `${hour - 12} PM`;
+}
+
+function getEventFill(color: string) {
+  return color || "#9FF4E2";
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    paddingTop: 50,
-  },
-  title: {
-    fontSize: 22,
-    textAlign: "center",
-    marginBottom: 10,
+    paddingHorizontal: HORIZONTAL_PADDING,
   },
   headerRow: {
     flexDirection: "row",
-    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EDEDED",
   },
   dayHeader: {
-    alignItems: "center",
+    height: 42,
+    justifyContent: "center",
+    borderLeftWidth: 1,
+    borderLeftColor: "#F2F2F2",
+    paddingLeft: 4,
+  },
+  dayText: {
+    color: "#5D6470",
+    fontSize: 7,
+    fontWeight: "800",
   },
   dateText: {
-    fontSize: 12,
+    color: "#05070A",
+    fontSize: 17,
+    fontWeight: "600",
+    lineHeight: 20,
   },
   allDayRow: {
     flexDirection: "row",
@@ -413,33 +446,39 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   grid: {
-    height: 24 * HOUR_HEIGHT,
+    height: VISIBLE_HOURS * HOUR_HEIGHT,
     position: "relative",
   },
   hourLine: {
     position: "absolute",
-    left: 0,
+    left: TIME_COLUMN_WIDTH,
     right: 0,
     height: 1,
-    backgroundColor: "#DDDDDD",
+    backgroundColor: "#F1F1F1",
+  },
+  dayLine: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: "#F3F3F3",
   },
   hourText: {
     position: "absolute",
     left: 0,
     width: TIME_COLUMN_WIDTH,
-    textAlign: "center",
-    fontSize: 12,
-    color: "#333333",
+    textAlign: "left",
+    fontSize: 9,
+    color: "#5E6571",
   },
   eventBlock: {
     position: "absolute",
-    padding: 4,
-    borderRadius: 4,
-  },
-  eventText: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "600",
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 4,
   },
   emptyBox: {
     position: "absolute",

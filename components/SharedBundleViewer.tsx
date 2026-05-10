@@ -20,6 +20,7 @@ export type SharedBundleSource = {
   subtitle: string;
   color: string;
   canDelete?: boolean;
+  canChangeColor?: boolean;
 };
 
 export type GeneratedShareQr = {
@@ -46,10 +47,20 @@ type Props = {
   onCreateQr?: () => void;
   onCloseQr?: () => void;
   onDeleteSource?: (sourceId: string) => void;
+  onChangeSourceColor?: (sourceId: string, color: string) => void | Promise<void>;
   onPreviousWeek?: () => void;
   onNextWeek?: () => void;
   onToday?: () => void;
 };
+
+const BUNDLE_COLORS = [
+  "#9FF4E2",
+  "#6C8AE4",
+  "#E27A5F",
+  "#3BAF7A",
+  "#F5D76E",
+  "#C184D8",
+];
 
 function QrMatrix({ matrix }: { matrix: boolean[][] }) {
   return (
@@ -98,6 +109,7 @@ export default function SharedBundleViewer({
   onCreateQr,
   onCloseQr,
   onDeleteSource,
+  onChangeSourceColor,
   onPreviousWeek,
   onNextWeek,
   onToday,
@@ -116,6 +128,9 @@ export default function SharedBundleViewer({
     if (selectedSourceIds.length === 0) return [];
 
     const selected = new Set(selectedSourceIds);
+    const sourceColors = new Map(
+      sources.map((source) => [source.id, source.color]),
+    );
     const isStacked = selectedSourceIds.length > 1;
     const eventOpacity = isStacked ? 0.55 : 1;
 
@@ -123,10 +138,11 @@ export default function SharedBundleViewer({
       .filter((event) => event.source && selected.has(event.source))
       .map((event) => ({
         ...event,
+        color: event.source ? sourceColors.get(event.source) ?? event.color : event.color,
         opacity: event.opacity ?? eventOpacity,
       }))
       .sort((a, b) => a.startTime - b.startTime);
-  }, [events, selectedSourceIds]);
+  }, [events, selectedSourceIds, sources]);
 
   const toggleSource = (id: string) => {
     setSelectedSourceIds((current) =>
@@ -171,11 +187,13 @@ export default function SharedBundleViewer({
         </Pressable>
       </View>
 
-      <WeekCalendarView
-        weekKey={weekKey}
-        events={calendarEvents}
-        emptyText={emptyText}
-      />
+      <View style={styles.calendarSpacer}>
+        <WeekCalendarView
+          weekKey={weekKey}
+          events={calendarEvents}
+          emptyText={emptyText}
+        />
+      </View>
 
       <View style={styles.actionDock}>
         {onCreateQr && (
@@ -236,6 +254,28 @@ export default function SharedBundleViewer({
                       <Text style={styles.sourceSubtitle}>
                         {source.subtitle}
                       </Text>
+                      {onChangeSourceColor && source.canChangeColor !== false && (
+                        <View style={styles.bundleColorRow}>
+                          {BUNDLE_COLORS.map((color) => {
+                            const isSelected = source.color === color;
+
+                            return (
+                              <Pressable
+                                key={`${source.id}:${color}`}
+                                style={[
+                                  styles.bundleColorSwatch,
+                                  { backgroundColor: color },
+                                  isSelected && styles.bundleColorSwatchSelected,
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  onChangeSourceColor(source.id, color);
+                                }}
+                              />
+                            );
+                          })}
+                        </View>
+                      )}
                     </View>
                     {source.canDelete && (
                       <Pressable
@@ -342,6 +382,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     pointerEvents: "box-none",
+  },
+  calendarSpacer: {
+    flex: 1,
+    paddingTop: 96,
   },
   weekButton: {
     minWidth: 54,
@@ -468,6 +512,21 @@ const styles = StyleSheet.create({
     color: "#666",
     fontSize: 13,
     marginTop: 2,
+  },
+  bundleColorRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  bundleColorSwatch: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  bundleColorSwatchSelected: {
+    borderColor: "#111",
   },
   deleteButton: {
     minHeight: 30,

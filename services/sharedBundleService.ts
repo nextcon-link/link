@@ -1,5 +1,5 @@
 import * as Linking from "expo-linking";
-import { and, eq, gte, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne, or } from "drizzle-orm";
 import * as QRCode from "qrcode";
 
 import { db } from "@/database";
@@ -332,6 +332,22 @@ export async function deleteSharedBundle(bundleId: string, userId: string) {
         eq(sharedBundles.id, bundleId),
         eq(sharedBundles.userId, userId),
         eq(sharedBundles.isDemo, false),
+      ),
+    );
+}
+
+export async function updateSharedBundleColor(
+  bundleId: string,
+  userId: string,
+  color: string,
+) {
+  await db
+    .update(sharedBundles)
+    .set({ color })
+    .where(
+      and(
+        eq(sharedBundles.id, bundleId),
+        or(eq(sharedBundles.userId, userId), eq(sharedBundles.isDemo, true)),
       ),
     );
 }

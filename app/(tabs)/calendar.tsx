@@ -19,7 +19,7 @@ export default function CalendarScreen() {
 
           router.push({
             pathname: "/",
-            params: { week },
+            params: { week, date: day.dateString },
           });
         }}
         theme={{

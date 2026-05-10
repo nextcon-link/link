@@ -20,11 +20,13 @@ import { seedDemoSharedBundles } from "@/services/sharedDemoSeed";
 import {
   createSharedBundleLink,
   deleteSharedBundle,
+  updateSharedBundleColor,
 } from "@/services/sharedBundleService";
 import { useAuthStore } from "@/store/auth";
 import { addWeeks, getCurrentWeekKey, getWeekDates } from "@/utils/date";
 
 const MY_CALENDAR_ID = "mine";
+const MY_CALENDAR_COLOR = "#9FF4E2";
 
 export default function SharedScreen() {
   const user = useAuthStore((state) => state.user);
@@ -109,7 +111,7 @@ export default function SharedScreen() {
         startTime: row.event.startTime,
         endTime: row.event.endTime,
         isAllDay: row.event.isAllDay,
-        color: row.label?.color ?? "#4A90E2",
+        color: MY_CALENDAR_COLOR,
         source: MY_CALENDAR_ID,
         editable: false,
         layoutGroupId: MY_CALENDAR_ID,
@@ -136,8 +138,9 @@ export default function SharedScreen() {
         id: MY_CALENDAR_ID,
         title: "내 일정",
         subtitle: "로컬 캘린더",
-        color: "#111111",
+        color: MY_CALENDAR_COLOR,
         canDelete: false,
+        canChangeColor: false,
       },
       ...bundleList.map((bundle) => ({
         id: bundle.id,
@@ -145,6 +148,7 @@ export default function SharedScreen() {
         subtitle: bundle.ownerName,
         color: bundle.color,
         canDelete: !bundle.isDemo,
+        canChangeColor: true,
       })),
     ],
     [bundleList],
@@ -174,6 +178,10 @@ export default function SharedScreen() {
     await deleteSharedBundle(bundleId, userId);
   };
 
+  const changeBundleColor = async (bundleId: string, color: string) => {
+    await updateSharedBundleColor(bundleId, userId, color);
+  };
+
   return (
     <SharedBundleViewer
       weekKey={weekKey}
@@ -184,6 +192,7 @@ export default function SharedScreen() {
       onCreateQr={createQr}
       onCloseQr={() => setQr(null)}
       onDeleteSource={removeBundle}
+      onChangeSourceColor={changeBundleColor}
       onPreviousWeek={() => setWeekKey((current) => addWeeks(current, -1))}
       onNextWeek={() => setWeekKey((current) => addWeeks(current, 1))}
       onToday={() => setWeekKey(getCurrentWeekKey())}
