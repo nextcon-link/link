@@ -363,7 +363,11 @@ export default function WeekCalendarView({
                     opacity: event.opacity ?? 1,
                   },
                 ]}
-              />
+              >
+                <Text style={styles.eventTitle} numberOfLines={2}>
+                  {event.title}
+                </Text>
+              </Pressable>
             );
           })}
         </View>
@@ -474,12 +478,21 @@ const styles = StyleSheet.create({
   },
   eventBlock: {
     position: "absolute",
+    overflow: "hidden",
     borderRadius: 12,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 5,
     elevation: 4,
+  },
+  eventTitle: {
+    color: "#FFF",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 13,
   },
   emptyBox: {
     position: "absolute",
