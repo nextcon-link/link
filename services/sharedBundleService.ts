@@ -16,6 +16,13 @@ const BLIND_TITLE = "블라인드";
 const DEFAULT_BUNDLE_COLOR = "#6C8AE4";
 const SHARE_PAYLOAD_VERSION = 1;
 
+export type SharedBundlePayloadEvent = {
+  title: string;
+  startTime: number;
+  endTime: number;
+  isAllDay: boolean;
+};
+
 type SharedBundlePayload = {
   v: number;
   id: string;
@@ -24,12 +31,7 @@ type SharedBundlePayload = {
   color: string;
   weekKey: string;
   createdAt: number;
-  events: Array<{
-    title: string;
-    startTime: number;
-    endTime: number;
-    isAllDay: boolean;
-  }>;
+  events: SharedBundlePayloadEvent[];
 };
 
 type LocalEventRow = {
@@ -130,48 +132,40 @@ function decodePayload(value: string | string[] | undefined) {
       return null;
     }
 
-    const normalizedEvents = eventsValue
-      .map((event) => {
-        if (Array.isArray(event)) {
-          const [eventTitle, startTime, endTime, isAllDay] = event;
-          return {
-            title: eventTitle,
-            startTime,
-            endTime,
-            isAllDay,
-          };
-        }
-        return event;
-      })
-      .filter(
-        (event) =>
-          event &&
-          typeof event === "object" &&
-          "title" in event &&
-          "startTime" in event &&
-          "endTime" in event,
-      ) as Array<{
-      title: unknown;
-      startTime: unknown;
-      endTime: unknown;
-      isAllDay?: unknown;
-    }>;
-    const decodedEvents: SharedBundlePayload["events"] = [];
+    const decodedEvents: SharedBundlePayloadEvent[] = [];
+    for (const event of eventsValue) {
+      const candidate = Array.isArray(event)
+        ? {
+            title: event[0],
+            startTime: event[1],
+            endTime: event[2],
+            isAllDay: event[3],
+          }
+        : event;
 
-    for (const event of normalizedEvents) {
       if (
-        typeof event.title !== "string" ||
-        typeof event.startTime !== "number" ||
-        typeof event.endTime !== "number"
+        !candidate ||
+        typeof candidate !== "object" ||
+        !("title" in candidate) ||
+        !("startTime" in candidate) ||
+        !("endTime" in candidate)
+      ) {
+        continue;
+      }
+
+      if (
+        typeof candidate.title !== "string" ||
+        typeof candidate.startTime !== "number" ||
+        typeof candidate.endTime !== "number"
       ) {
         continue;
       }
 
       decodedEvents.push({
-        title: event.title,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        isAllDay: Boolean(event.isAllDay),
+        title: candidate.title,
+        startTime: candidate.startTime,
+        endTime: candidate.endTime,
+        isAllDay: Boolean("isAllDay" in candidate ? candidate.isAllDay : false),
       });
     }
 
@@ -263,7 +257,7 @@ export async function createSharedBundleLink(input: {
         isAllDay: row.event.isAllDay,
       };
     })
-    .filter((event): event is NonNullable<typeof event> => event !== null)
+    .filter((event): event is SharedBundlePayloadEvent => event !== null)
     .sort((a, b) => a.startTime - b.startTime);
 
   const payload: SharedBundlePayload = {
@@ -283,6 +277,7 @@ export async function createSharedBundleLink(input: {
   return {
     url,
     qrMatrix: createQrMatrix(url),
+    events: payloadEvents,
     eventCount: payloadEvents.length,
     title: payload.title,
   };

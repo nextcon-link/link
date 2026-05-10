@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,12 @@ export type SharedBundleSource = {
 export type GeneratedShareQr = {
   url: string;
   qrMatrix: boolean[][];
+  events: {
+    title: string;
+    startTime: number;
+    endTime: number;
+    isAllDay: boolean;
+  }[];
   eventCount: number;
   title: string;
 };
@@ -65,6 +71,22 @@ function QrMatrix({ matrix }: { matrix: boolean[][] }) {
   );
 }
 
+function formatPreviewTime(startTime: number, endTime: number, isAllDay: boolean) {
+  if (isAllDay) return "종일";
+
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const date = `${start.getMonth() + 1}/${start.getDate()}`;
+  const startText = `${String(start.getHours()).padStart(2, "0")}:${String(
+    start.getMinutes(),
+  ).padStart(2, "0")}`;
+  const endText = `${String(end.getHours()).padStart(2, "0")}:${String(
+    end.getMinutes(),
+  ).padStart(2, "0")}`;
+
+  return `${date} ${startText}-${endText}`;
+}
+
 export default function SharedBundleViewer({
   weekKey,
   sources,
@@ -84,6 +106,11 @@ export default function SharedBundleViewer({
     defaultSelectedSourceIds,
   );
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isQrVisible, setIsQrVisible] = useState(false);
+
+  useEffect(() => {
+    setIsQrVisible(false);
+  }, [generatedQr]);
 
   const calendarEvents = useMemo(() => {
     if (selectedSourceIds.length === 0) return [];
@@ -107,6 +134,11 @@ export default function SharedBundleViewer({
         ? current.filter((sourceId) => sourceId !== id)
         : [...current, id],
     );
+  };
+
+  const closeShareModal = () => {
+    setIsQrVisible(false);
+    onCloseQr?.();
   };
 
   const confirmDelete = (source: SharedBundleSource) => {
@@ -233,23 +265,57 @@ export default function SharedBundleViewer({
         animationType="fade"
         transparent
         visible={Boolean(generatedQr)}
-        onRequestClose={onCloseQr}
+        onRequestClose={closeShareModal}
       >
         <View style={styles.qrBackdrop}>
           <View style={styles.qrSheet}>
             <View style={styles.sheetHeader}>
               <View>
-                <Text style={styles.sheetTitle}>딥링크 QR</Text>
+                <Text style={styles.sheetTitle}>
+                  {isQrVisible ? "딥링크 QR" : "공유 미리보기"}
+                </Text>
                 <Text style={styles.qrSubtitle}>
                   {generatedQr?.eventCount ?? 0}개 일정 포함
                 </Text>
               </View>
-              <Pressable onPress={onCloseQr}>
+              <Pressable onPress={closeShareModal}>
                 <Text style={styles.closeText}>닫기</Text>
               </Pressable>
             </View>
 
-            {generatedQr && (
+            {generatedQr && !isQrVisible && (
+              <>
+                <Text style={styles.previewTitle}>{generatedQr.title}</Text>
+                <ScrollView style={styles.previewList}>
+                  {generatedQr.events.length === 0 ? (
+                    <Text style={styles.previewEmpty}>
+                      공유 가능한 일정이 없습니다.
+                    </Text>
+                  ) : (
+                    generatedQr.events.map((event, index) => (
+                      <View key={`${event.startTime}:${index}`} style={styles.previewRow}>
+                        <Text style={styles.previewEventTitle}>{event.title}</Text>
+                        <Text style={styles.previewEventTime}>
+                          {formatPreviewTime(
+                            event.startTime,
+                            event.endTime,
+                            event.isAllDay,
+                          )}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+                <Pressable
+                  style={styles.primaryShareButton}
+                  onPress={() => setIsQrVisible(true)}
+                >
+                  <Text style={styles.primaryShareButtonText}>QR 보기</Text>
+                </Pressable>
+              </>
+            )}
+
+            {generatedQr && isQrVisible && (
               <>
                 <QrMatrix matrix={generatedQr.qrMatrix} />
                 <Text style={styles.qrTitle}>{generatedQr.title}</Text>
@@ -442,7 +508,8 @@ const styles = StyleSheet.create({
   },
   qrSheet: {
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 380,
+    maxHeight: "82%",
     borderRadius: 18,
     backgroundColor: "#FFF",
     padding: 20,
@@ -451,6 +518,49 @@ const styles = StyleSheet.create({
     color: "#666",
     fontSize: 13,
     marginTop: 2,
+  },
+  previewTitle: {
+    color: "#111",
+    fontSize: 15,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+  previewList: {
+    maxHeight: 320,
+  },
+  previewRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEE",
+    paddingVertical: 12,
+  },
+  previewEventTitle: {
+    color: "#111",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  previewEventTime: {
+    color: "#666",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  previewEmpty: {
+    color: "#777",
+    fontSize: 14,
+    paddingVertical: 24,
+    textAlign: "center",
+  },
+  primaryShareButton: {
+    minHeight: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 23,
+    backgroundColor: "#111",
+    marginTop: 16,
+  },
+  primaryShareButtonText: {
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "800",
   },
   qrMatrix: {
     width: "100%",
