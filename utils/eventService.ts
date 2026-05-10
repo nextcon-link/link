@@ -26,7 +26,7 @@ async function canWriteToLabel(
 // Flow A — optimistic write to local DB, then background sync to Supabase.
 // Returns false if validation fails (empty title or bad times).
 export async function createEvent(input: EventFormInput): Promise<boolean> {
-  const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule } = input;
+  const { title, date, startHour, startMinute, endHour, endMinute, labelId, recurrenceRule, sharingMode } = input;
 
   if (!title.trim()) return false;
 
@@ -46,6 +46,7 @@ export async function createEvent(input: EventFormInput): Promise<boolean> {
     isAllDay:       false,
     labelId,
     recurrenceRule: recurrenceRule ?? null,
+    sharingMode,
     deletedAt:      null,
     syncStatus:     "pending_create",
     updatedAt:  Date.now(),

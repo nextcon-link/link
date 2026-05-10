@@ -10,7 +10,7 @@ export type EventFormInput = {
   sharingMode: sharingMode;
 };
 
-export type sharingMode = 'visible' | 'invisible' | 'blind';
+export type sharingMode = 'none' | 'visible' | 'invisible' | 'blind';
 
 export type LabelFormInput = {
   name: string;

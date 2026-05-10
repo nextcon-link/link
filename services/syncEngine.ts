@@ -11,6 +11,7 @@ import {
   type RemoteLabel,
 } from './supabaseApi';
 import { getCurrentUserId } from '@/utils/storage';
+import type { sharingMode } from '@/utils/events';
 
 const LAST_SYNC_KEY = 'last_sync_timestamp';
 let lastGoogleSyncAttemptAt = 0;
@@ -26,6 +27,12 @@ async function setLastSync(userId: string, ts: number): Promise<void> {
 
 function remoteTime(value: string | null | undefined): number {
   return value ? new Date(value).getTime() : 0;
+}
+
+function normalizeSharingMode(value: string | null | undefined): sharingMode {
+  return value === 'visible' || value === 'invisible' || value === 'blind'
+    ? value
+    : 'none';
 }
 
 function maxRemoteUpdatedAt(
@@ -47,6 +54,7 @@ function labelPatchFromRemote(remote: RemoteLabel) {
     googleAccessRole: remote.google_access_role,
     googleSyncEnabled: remote.google_sync_enabled,
     googleIsReadonly: remote.google_is_readonly,
+    sharingMode: normalizeSharingMode(remote.sharing_mode),
     deletedAt: remoteTime(remote.deleted_at) || null,
     updatedAt: remoteTime(remote.updated_at),
   };
@@ -66,6 +74,7 @@ function eventPatchFromRemote(remote: RemoteEvent) {
     googleCalendarId: remote.google_calendar_id,
     googleEtag: remote.google_etag,
     googleUpdatedAt: remoteTime(remote.google_updated_at) || null,
+    sharingMode: normalizeSharingMode(remote.sharing_mode),
     deletedAt: remoteTime(remote.deleted_at) || null,
     updatedAt: remoteTime(remote.updated_at),
   };

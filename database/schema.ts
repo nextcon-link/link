@@ -14,7 +14,7 @@ export const labels = sqliteTable('labels', {
   deletedAt:  integer('deleted_at'),
   syncStatus: text('sync_status').notNull().default('pending_create'),
   updatedAt:  integer('updated_at').notNull(),
-  sharingMode: text('sharing_mode').notNull().default('visible'),
+  sharingMode: text('sharing_mode').notNull().default('none'),
 });
 
 export const events = sqliteTable('events', {
@@ -36,7 +36,7 @@ export const events = sqliteTable('events', {
   deletedAt:         integer('deleted_at'),
   syncStatus:        text('sync_status').notNull().default('pending_create'),
   updatedAt:         integer('updated_at').notNull(),
-  sharingMode:       text('sharing_mode').notNull().default('visible'),
+  sharingMode:       text('sharing_mode').notNull().default('none'),
 });
 
 export const sharedBundles = sqliteTable('shared_bundles', {

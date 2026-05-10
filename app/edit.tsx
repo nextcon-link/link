@@ -53,7 +53,7 @@ export default function EditScreen() {
         endMinute:      endD.minute(),
         labelId:        event.labelId ?? null,
         recurrenceRule: event.recurrenceRule ?? null,
-        sharingMode:   (event.sharingMode as sharingMode) ?? "visible",
+        sharingMode:   (event.sharingMode as sharingMode) ?? "none",
         // db는 sharingMode가 순혈 Text로, TS에서는 유니온 타입이여서 강제 형변환 해준 겁니다.
       });
     }

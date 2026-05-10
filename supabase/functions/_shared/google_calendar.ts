@@ -67,6 +67,7 @@ type RemoteLabel = {
   google_access_role: string | null;
   google_sync_enabled: boolean;
   google_is_readonly: boolean;
+  sharing_mode: "none" | "visible" | "invisible" | "blind";
   deleted_at: string | null;
   updated_at: string;
 };
@@ -86,6 +87,7 @@ type RemoteEvent = {
   google_calendar_id: string | null;
   google_etag: string | null;
   google_updated_at: string | null;
+  sharing_mode: "none" | "visible" | "invisible" | "blind";
   deleted_at: string | null;
   updated_at: string;
 };
@@ -690,6 +692,7 @@ async function importGoogleCalendars(userId: string): Promise<CalendarLink[]> {
         google_access_role: accessRole,
         google_sync_enabled: true,
         google_is_readonly: readonly,
+        sharing_mode: "none",
         updated_at: new Date().toISOString(),
       });
     } else {
@@ -1019,21 +1022,43 @@ async function pullGoogleEventsForLink(userId: string, link: CalendarLink) {
       );
       if (!payload) continue;
 
-      const { data: existingEvent } = await supabase
+      const { data: existingEventByGoogleId } = await supabase
         .from("events")
         .select("id")
         .eq("user_id", userId)
         .eq("google_calendar_id", link.google_calendar_id)
         .eq("google_event_id", googleEvent.id)
         .maybeSingle();
+      let existingEvent = existingEventByGoogleId as { id: string } | null;
+
+      if (!existingEvent && googleEvent.extendedProperties?.private?.linkEventId) {
+        const { data: existingEventByLinkId } = await supabase
+          .from("events")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("id", googleEvent.extendedProperties.private.linkEventId)
+          .maybeSingle();
+        existingEvent = existingEventByLinkId as { id: string } | null;
+      }
 
       if (existingEvent?.id && !googleEvent.extendedProperties?.private?.linkEventId) {
         payload.id = existingEvent.id;
       }
 
-      await supabase
-        .from("events")
-        .upsert(payload, { onConflict: "id" });
+      if (existingEvent?.id) {
+        await supabase
+          .from("events")
+          .update(payload)
+          .eq("id", payload.id)
+          .eq("user_id", userId);
+      } else {
+        await supabase
+          .from("events")
+          .insert({
+            ...payload,
+            sharing_mode: "none",
+          });
+      }
     }
 
     if (response.nextPageToken) {

@@ -33,6 +33,7 @@ const PRESET_COLORS = [
 
 type VisibilityOption = { label: string, visibility: sharingMode }
 const VISIBILITY_LEVEL: VisibilityOption[] = [
+  {label:"없음",visibility:"none"},
   {label:"공개",visibility:"visible"},
   {label:"비공개",visibility:"invisible"},
   {label:"부분 공개",visibility:"blind"},
@@ -42,7 +43,7 @@ export default function LabelsScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const [name, setName] = useState("");
   const [color, setColor] = useState(PRESET_COLORS[0]);
-  const [sharingMode, setSharingMode] = useState<sharingMode>("visible")
+  const [sharingMode, setSharingMode] = useState<sharingMode>("none")
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState(PRESET_COLORS[0]);
@@ -65,12 +66,14 @@ export default function LabelsScreen() {
     await createLabel({ name, color, sharingMode });
     setName("");
     setColor(PRESET_COLORS[0]);
+    setSharingMode("none");
   };
 
-  const startEdit = (id: string, currentName: string, currentColor: string) => {
+  const startEdit = (id: string, currentName: string, currentColor: string, currentSharingMode: sharingMode) => {
     setEditingId(id);
     setEditName(currentName);
     setEditColor(currentColor);
+    setSharingMode(currentSharingMode);
   };
 
   const handleUpdate = async () => {
@@ -165,6 +168,22 @@ export default function LabelsScreen() {
                 />
               ))}
             </View>
+            <View style={styles.row}>
+              {VISIBILITY_LEVEL.map((opt) => {
+                const selected = sharingMode === opt.visibility;
+                return (
+                  <Pressable
+                    key={opt.label}
+                    style={[styles.chip, selected && styles.chipSelected]}
+                    onPress={() => setSharingMode(opt.visibility)}
+                  >
+                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             <View style={styles.editActions}>
               <Pressable style={styles.saveEditButton} onPress={handleUpdate}>
                 <Text style={styles.saveEditText}>저장</Text>
@@ -200,7 +219,7 @@ export default function LabelsScreen() {
             <View style={styles.labelActions}>
               <Pressable
                 style={styles.editButton}
-                onPress={() => startEdit(lbl.id, lbl.name, lbl.color)}
+                onPress={() => startEdit(lbl.id, lbl.name, lbl.color, lbl.sharingMode as sharingMode)}
               >
                 <Text style={styles.editButtonText}>편집</Text>
               </Pressable>

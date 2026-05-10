@@ -53,24 +53,57 @@ export default function HomeScreen() {
     [weekStart, weekEnd, userId],
   );
 
+  const { data: labelRows = [] } = useLiveQuery(
+    db
+      .select()
+      .from(labels)
+      .where(and(
+        eq(labels.userId, userId),
+        isNull(labels.deletedAt),
+        ne(labels.syncStatus, "pending_delete"),
+      )),
+    [userId],
+  );
+
+  const labelsById = useMemo(
+    () => new Map(labelRows.map((label) => [label.id, label])),
+    [labelRows],
+  );
+
   const localEvents: EventWithLabel[] = useMemo(
     () =>
       rows
+        .map((row) => ({
+          event: row.event,
+          label: row.event.labelId
+            ? labelsById.get(row.event.labelId) ?? row.label ?? null
+            : null,
+        }))
         .filter((row) => !row.label || row.label.isVisible)
         .map((row) => ({
           ...row.event,
-          label: row.label ?? null,
+          label: row.label,
         })),
-    [rows],
+    [labelsById, rows],
   );
 
   const [mergedEvents, setMergedEvents] = useState<MergedEvent[]>([]);
 
   // Flow C — merge device calendar events in memory whenever local events change
   useEffect(() => {
+    let cancelled = false;
+
     getMergedEvents(localEvents, weekDates[0], weekDates[6]).then(
-      setMergedEvents,
+      (nextEvents) => {
+        if (!cancelled) {
+          setMergedEvents(nextEvents);
+        }
+      },
     );
+
+    return () => {
+      cancelled = true;
+    };
   }, [localEvents, weekDates]);
 
   const calendarEvents: WeekCalendarEvent[] = useMemo(
