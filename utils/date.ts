@@ -34,3 +34,9 @@ export function getWeekDates(weekKey: string) {
 export function getCurrentWeekKey() {
   return getWeekKey(formatDate(new Date()));
 }
+
+export function addWeeks(weekKey: string, amount: number) {
+  const date = parseDate(weekKey);
+  date.setDate(date.getDate() + amount * 7);
+  return formatDate(date);
+}

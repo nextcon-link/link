@@ -1,10 +1,10 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 
 import SharedBundleViewer, {
   type SharedBundleSource,
 } from "@/components/SharedBundleViewer";
 import type { WeekCalendarEvent } from "@/components/WeekCalendarView";
-import { formatDate, getCurrentWeekKey, getWeekDates } from "@/utils/date";
+import { addWeeks, formatDate, getCurrentWeekKey, getWeekDates } from "@/utils/date";
 import { toUtcMs } from "@/utils/datetime";
 
 type WebSharedBundle = SharedBundleSource & {
@@ -26,8 +26,8 @@ const WEB_SHARED_BUNDLES: WebSharedBundle[] = [
     color: "#6C8AE4",
     events: [
       { title: "자료조사", dayIndex: 1, startHour: 9, startMinute: 0, endHour: 10, endMinute: 30 },
-      { title: "팀플 회의", dayIndex: 3, startHour: 13, startMinute: 0, endHour: 15, endMinute: 0 },
-      { title: "실험 보고서", dayIndex: 5, startHour: 10, startMinute: 0, endHour: 12, endMinute: 0 },
+      { title: "팀 회의", dayIndex: 3, startHour: 13, startMinute: 0, endHour: 15, endMinute: 0 },
+      { title: "시험 보고서", dayIndex: 5, startHour: 10, startMinute: 0, endHour: 12, endMinute: 0 },
     ],
   },
   {
@@ -54,10 +54,11 @@ const WEB_SHARED_BUNDLES: WebSharedBundle[] = [
     ],
   },
 ];
+const WEB_DEMO_WEEK_KEY = "2026-05-10";
 
 export default function WebSharedScreen() {
-  const weekKey = getCurrentWeekKey();
-  const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
+  const [weekKey, setWeekKey] = useState(getCurrentWeekKey());
+  const demoWeekDates = useMemo(() => getWeekDates(WEB_DEMO_WEEK_KEY), []);
 
   const sources = useMemo<SharedBundleSource[]>(
     () =>
@@ -74,7 +75,7 @@ export default function WebSharedScreen() {
     () =>
       WEB_SHARED_BUNDLES.flatMap((bundle) =>
         bundle.events.map((event, index) => {
-          const date = formatDate(weekDates[event.dayIndex]);
+          const date = formatDate(demoWeekDates[event.dayIndex]);
 
           return {
             id: `${bundle.id}:${index}`,
@@ -88,7 +89,7 @@ export default function WebSharedScreen() {
           };
         }),
       ),
-    [weekDates],
+    [demoWeekDates],
   );
 
   return (
@@ -98,6 +99,9 @@ export default function WebSharedScreen() {
       events={events}
       emptyText="공유된 일정이 없습니다."
       defaultSelectedSourceIds={sources.map((source) => source.id)}
+      onPreviousWeek={() => setWeekKey((current) => addWeeks(current, -1))}
+      onNextWeek={() => setWeekKey((current) => addWeeks(current, 1))}
+      onToday={() => setWeekKey(getCurrentWeekKey())}
     />
   );
 }

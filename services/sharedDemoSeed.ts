@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { db } from "@/database";
 import { sharedBundleEvents, sharedBundles } from "@/database/schema";
-import { formatDate, getCurrentWeekKey, getWeekDates } from "@/utils/date";
+import { formatDate, getWeekDates } from "@/utils/date";
 import { toUtcMs } from "@/utils/datetime";
 
 type DemoBundle = {
@@ -20,6 +20,9 @@ type DemoBundle = {
   }>;
 };
 
+const DEMO_USER_ID = "__demo__";
+const DEMO_WEEK_KEY = "2026-05-10";
+
 const DEMO_BUNDLES: DemoBundle[] = [
   {
     id: "minseo",
@@ -28,8 +31,8 @@ const DEMO_BUNDLES: DemoBundle[] = [
     color: "#6C8AE4",
     events: [
       { title: "자료조사", dayIndex: 1, startHour: 9, startMinute: 0, endHour: 10, endMinute: 30 },
-      { title: "팀플 회의", dayIndex: 3, startHour: 13, startMinute: 0, endHour: 15, endMinute: 0 },
-      { title: "실험 보고서", dayIndex: 5, startHour: 10, startMinute: 0, endHour: 12, endMinute: 0 },
+      { title: "팀 회의", dayIndex: 3, startHour: 13, startMinute: 0, endHour: 15, endMinute: 0 },
+      { title: "시험 보고서", dayIndex: 5, startHour: 10, startMinute: 0, endHour: 12, endMinute: 0 },
     ],
   },
   {
@@ -57,29 +60,36 @@ const DEMO_BUNDLES: DemoBundle[] = [
   },
 ];
 
-export async function seedDemoSharedBundles(userId: string): Promise<void> {
-  if (!__DEV__ || !userId) return;
+function getDemoBundleId(bundleId: string) {
+  return `demo_${bundleId}`;
+}
 
-  const existing = await db
-    .select()
+export async function seedDemoSharedBundles(): Promise<void> {
+  if (!__DEV__) return;
+
+  const expectedIds = new Set(DEMO_BUNDLES.map((bundle) => getDemoBundleId(bundle.id)));
+  const existingDemos = await db
+    .select({ id: sharedBundles.id })
     .from(sharedBundles)
-    .where(and(eq(sharedBundles.userId, userId), eq(sharedBundles.isDemo, true)));
+    .where(eq(sharedBundles.isDemo, true));
+  const existingIds = new Set(existingDemos.map((bundle) => bundle.id));
+  const hasOnlyCommonDemos =
+    existingIds.size === expectedIds.size &&
+    [...expectedIds].every((id) => existingIds.has(id));
 
-  if (existing.length >= DEMO_BUNDLES.length) return;
+  if (hasOnlyCommonDemos) return;
 
-  await db
-    .delete(sharedBundles)
-    .where(and(eq(sharedBundles.userId, userId), eq(sharedBundles.isDemo, true)));
+  await db.delete(sharedBundles).where(eq(sharedBundles.isDemo, true));
 
   const now = Date.now();
-  const weekDates = getWeekDates(getCurrentWeekKey());
+  const weekDates = getWeekDates(DEMO_WEEK_KEY);
 
   for (const bundle of DEMO_BUNDLES) {
-    const bundleId = `demo_${userId}_${bundle.id}`;
+    const bundleId = getDemoBundleId(bundle.id);
 
     await db.insert(sharedBundles).values({
       id: bundleId,
-      userId,
+      userId: DEMO_USER_ID,
       title: bundle.title,
       ownerName: bundle.ownerName,
       color: bundle.color,
@@ -94,7 +104,7 @@ export async function seedDemoSharedBundles(userId: string): Promise<void> {
       await db.insert(sharedBundleEvents).values({
         id: `${bundleId}_event_${index}`,
         bundleId,
-        userId,
+        userId: DEMO_USER_ID,
         title: event.title,
         startTime: toUtcMs(date, event.startHour, event.startMinute),
         endTime: toUtcMs(date, event.endHour, event.endMinute),
