@@ -2,7 +2,7 @@ import { router, useLocalSearchParams, type Href } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
-import { and, eq, gte, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import dayjs from "dayjs";
 
 import WeekCalendarView, {
@@ -73,8 +73,10 @@ export default function HomeScreen() {
       .where(
         and(
           eq(events.userId, userId),
-          gte(events.startTime, weekStart),
-          lte(events.startTime, weekEnd),
+          or(
+            and(gte(events.startTime, weekStart), lte(events.startTime, weekEnd)),
+            and(isNotNull(events.recurrenceRule), lte(events.startTime, weekEnd)),
+          ),
           isNull(events.deletedAt),
           ne(events.syncStatus, "pending_delete"),
         ),
@@ -147,6 +149,7 @@ export default function HomeScreen() {
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,
         editable: event.source === "local" && !event.isReadonly,
+        editEventId: event.originalEventId ?? event.id,
         layoutGroupId: MAIN_CALENDAR_LAYOUT_GROUP_ID,
       })),
     [mergedEvents],
@@ -171,7 +174,7 @@ export default function HomeScreen() {
             if (!event.editable) return;
             router.push({
               pathname: "/edit",
-              params: { id: event.id, week: weekKey },
+              params: { id: event.editEventId ?? event.id, week: weekKey },
             });
           }}
         />

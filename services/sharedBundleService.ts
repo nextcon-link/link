@@ -1,5 +1,5 @@
 import * as Linking from "expo-linking";
-import { and, eq, gte, isNull, lte, ne, or } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import * as QRCode from "qrcode";
 
 import { db } from "@/database";
@@ -9,6 +9,7 @@ import {
   sharedBundleEvents,
   sharedBundles,
 } from "@/database/schema";
+import { expandEventOccurrences } from "@/services/recurrence";
 import type { sharingMode } from "@/utils/events";
 import { generateId } from "@/utils/uuid";
 
@@ -237,8 +238,10 @@ export async function createSharedBundleLink(input: {
     .where(
       and(
         eq(events.userId, input.userId),
-        gte(events.startTime, input.weekStart),
-        lte(events.startTime, input.weekEnd),
+        or(
+          and(gte(events.startTime, input.weekStart), lte(events.startTime, input.weekEnd)),
+          and(isNotNull(events.recurrenceRule), lte(events.startTime, input.weekEnd)),
+        ),
         isNull(events.deletedAt),
         ne(events.syncStatus, "pending_delete"),
       ),
@@ -246,18 +249,21 @@ export async function createSharedBundleLink(input: {
 
   const ownerName = getOwnerName(input.user);
   const payloadEvents = rows
-    .map((row) => {
+    .flatMap((row) => {
       const title = resolveSharedTitle(row);
-      if (!title) return null;
+      if (!title) return [];
 
-      return {
+      return expandEventOccurrences(
+        row.event,
+        new Date(input.weekStart),
+        new Date(input.weekEnd),
+      ).map((event) => ({
         title,
-        startTime: row.event.startTime,
-        endTime: row.event.endTime,
-        isAllDay: row.event.isAllDay,
-      };
+        startTime: event.startTime,
+        endTime: event.endTime,
+        isAllDay: event.isAllDay,
+      }));
     })
-    .filter((event): event is SharedBundlePayloadEvent => event !== null)
     .sort((a, b) => a.startTime - b.startTime);
 
   const payload: SharedBundlePayload = {

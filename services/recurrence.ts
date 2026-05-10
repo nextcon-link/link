@@ -68,3 +68,48 @@ export function isOccurrence(
     return false;
   }
 }
+
+export type RecurringEventLike = {
+  id: string;
+  startTime: number;
+  endTime: number;
+  recurrenceRule?: string | null;
+};
+
+export type ExpandedOccurrence<T extends RecurringEventLike> = T & {
+  originalEventId: string;
+  occurrenceStartTime: number;
+};
+
+export function expandEventOccurrences<T extends RecurringEventLike>(
+  event: T,
+  rangeStart: Date,
+  rangeEnd: Date,
+): ExpandedOccurrence<T>[] {
+  if (!event.recurrenceRule) {
+    return [
+      {
+        ...event,
+        originalEventId: event.id,
+        occurrenceStartTime: event.startTime,
+      },
+    ];
+  }
+
+  const duration = event.endTime - event.startTime;
+  const occurrenceStarts = expandRecurrences(
+    event.recurrenceRule,
+    event.startTime,
+    rangeStart,
+    rangeEnd,
+  );
+
+  return occurrenceStarts.map((startTime) => ({
+    ...event,
+    id: `${event.id}__${startTime}`,
+    startTime,
+    endTime: startTime + duration,
+    originalEventId: event.id,
+    occurrenceStartTime: startTime,
+  }));
+}

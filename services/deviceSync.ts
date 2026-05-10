@@ -1,5 +1,6 @@
 import * as Calendar from 'expo-calendar';
 import type { Event, Label } from '../database/schema';
+import { expandEventOccurrences } from './recurrence';
 
 // Unified type for rendering — local DB events and read-only device calendar events.
 export type MergedEvent = {
@@ -10,6 +11,7 @@ export type MergedEvent = {
   isAllDay: boolean;
   source: 'local' | 'device';
   labelColor: string;
+  originalEventId?: string;
   isReadonly?: boolean;
   syncStatus?: string;
 };
@@ -30,17 +32,20 @@ export async function getMergedEvents(
 ): Promise<MergedEvent[]> {
   const localMapped: MergedEvent[] = localEvents
     .filter((e) => e.syncStatus !== 'pending_delete')
-    .map((e) => ({
-      id: e.id,
-      title: e.title,
-      startTime: e.startTime,
-      endTime: e.endTime,
-      isAllDay: e.isAllDay,
-      source: 'local',
-      labelColor: e.label?.color ?? '#9FF4E2',
-      isReadonly: e.label?.googleIsReadonly ?? false,
-      syncStatus: e.syncStatus,
-    }));
+    .flatMap((e) =>
+      expandEventOccurrences(e, startDate, endDate).map((occurrence) => ({
+        id: occurrence.id,
+        title: occurrence.title,
+        startTime: occurrence.startTime,
+        endTime: occurrence.endTime,
+        isAllDay: occurrence.isAllDay,
+        source: 'local',
+        labelColor: occurrence.label?.color ?? '#9FF4E2',
+        originalEventId: occurrence.originalEventId,
+        isReadonly: occurrence.label?.googleIsReadonly ?? false,
+        syncStatus: occurrence.syncStatus,
+      })),
+    );
 
   let deviceMapped: MergedEvent[] = [];
 

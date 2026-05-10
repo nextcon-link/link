@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
-import { and, eq, gte, isNull, lte, ne, or } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import dayjs from "dayjs";
 
 import SharedBundleViewer, {
@@ -22,6 +22,7 @@ import {
   deleteSharedBundle,
   updateSharedBundleColor,
 } from "@/services/sharedBundleService";
+import { expandEventOccurrences } from "@/services/recurrence";
 import { useAuthStore } from "@/store/auth";
 import { addWeeks, getCurrentWeekKey, getWeekDates } from "@/utils/date";
 
@@ -69,8 +70,10 @@ export default function SharedScreen() {
       .where(
         and(
           eq(events.userId, userId),
-          gte(events.startTime, weekStart),
-          lte(events.startTime, weekEnd),
+          or(
+            and(gte(events.startTime, weekStart), lte(events.startTime, weekEnd)),
+            and(isNotNull(events.recurrenceRule), lte(events.startTime, weekEnd)),
+          ),
           isNull(events.deletedAt),
           ne(events.syncStatus, "pending_delete"),
         ),
@@ -105,17 +108,23 @@ export default function SharedScreen() {
   const calendarEvents: WeekCalendarEvent[] = useMemo(() => {
     const mine: WeekCalendarEvent[] = localRows
       .filter((row) => !row.label || row.label.isVisible)
-      .map((row) => ({
-        id: `mine:${row.event.id}`,
-        title: row.event.title,
-        startTime: row.event.startTime,
-        endTime: row.event.endTime,
-        isAllDay: row.event.isAllDay,
-        color: MY_CALENDAR_COLOR,
-        source: MY_CALENDAR_ID,
-        editable: false,
-        layoutGroupId: MY_CALENDAR_ID,
-      }));
+      .flatMap((row) =>
+        expandEventOccurrences(
+          row.event,
+          new Date(weekStart),
+          new Date(weekEnd),
+        ).map((event) => ({
+          id: `mine:${event.id}`,
+          title: event.title,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          isAllDay: event.isAllDay,
+          color: MY_CALENDAR_COLOR,
+          source: MY_CALENDAR_ID,
+          editable: false,
+          layoutGroupId: MY_CALENDAR_ID,
+        })),
+      );
 
     const shared: WeekCalendarEvent[] = sharedRows.map((row) => ({
       id: `shared:${row.event.id}`,
@@ -130,7 +139,7 @@ export default function SharedScreen() {
     }));
 
     return [...mine, ...shared].sort((a, b) => a.startTime - b.startTime);
-  }, [localRows, sharedRows]);
+  }, [localRows, sharedRows, weekEnd, weekStart]);
 
   const sources = useMemo<SharedBundleSource[]>(
     () => [

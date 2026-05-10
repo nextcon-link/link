@@ -37,6 +37,7 @@ export type WeekCalendarEvent = {
   opacity?: number;
   source?: string;
   editable?: boolean;
+  editEventId?: string;
   layoutGroupId?: string;
 };
 
