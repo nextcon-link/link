@@ -132,6 +132,19 @@ create table if not exists public.friendships (
   unique (user_low_id, user_high_id)
 );
 
+create table if not exists public.friend_share_settings (
+  owner_user_id uuid not null references auth.users(id) on delete cascade,
+  friend_user_id uuid not null references auth.users(id) on delete cascade,
+  is_enabled boolean not null default false,
+  weeks_ahead integer not null default 1 check (weeks_ahead between 1 and 52),
+  selected_label_ids text[] not null default '{}',
+  include_unlabeled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (owner_user_id, friend_user_id),
+  check (owner_user_id <> friend_user_id)
+);
+
 create index if not exists labels_user_id_idx on public.labels(user_id);
 create index if not exists labels_updated_at_idx on public.labels(updated_at);
 create index if not exists labels_deleted_at_idx on public.labels(deleted_at);
@@ -146,11 +159,14 @@ create index if not exists google_calendar_links_user_id_idx on public.google_ca
 create index if not exists google_calendar_links_watch_channel_idx on public.google_calendar_links(watch_channel_id);
 create index if not exists friendships_user_low_id_idx on public.friendships(user_low_id);
 create index if not exists friendships_user_high_id_idx on public.friendships(user_high_id);
+create index if not exists friend_share_settings_friend_user_id_idx
+  on public.friend_share_settings(friend_user_id);
 
 alter table public.profiles enable row level security;
 alter table public.events enable row level security;
 alter table public.labels enable row level security;
 alter table public.friendships enable row level security;
+alter table public.friend_share_settings enable row level security;
 alter table public.google_connections enable row level security;
 alter table public.google_calendar_links enable row level security;
 
@@ -248,6 +264,35 @@ for delete
 to authenticated
 using (auth.uid() = user_low_id or auth.uid() = user_high_id);
 
+drop policy if exists friend_share_settings_owner_select on public.friend_share_settings;
+create policy friend_share_settings_owner_select
+on public.friend_share_settings
+for select
+to authenticated
+using (auth.uid() = owner_user_id);
+
+drop policy if exists friend_share_settings_owner_insert on public.friend_share_settings;
+create policy friend_share_settings_owner_insert
+on public.friend_share_settings
+for insert
+to authenticated
+with check (auth.uid() = owner_user_id);
+
+drop policy if exists friend_share_settings_owner_update on public.friend_share_settings;
+create policy friend_share_settings_owner_update
+on public.friend_share_settings
+for update
+to authenticated
+using (auth.uid() = owner_user_id)
+with check (auth.uid() = owner_user_id);
+
+drop policy if exists friend_share_settings_owner_delete on public.friend_share_settings;
+create policy friend_share_settings_owner_delete
+on public.friend_share_settings
+for delete
+to authenticated
+using (auth.uid() = owner_user_id);
+
 revoke select on public.profiles from anon, authenticated;
 grant select (id, username, display_name, avatar_url) on public.profiles to authenticated;
 
@@ -280,6 +325,11 @@ for each row execute function public.set_updated_at();
 drop trigger if exists events_set_updated_at on public.events;
 create trigger events_set_updated_at
 before insert or update on public.events
+for each row execute function public.set_updated_at();
+
+drop trigger if exists friend_share_settings_set_updated_at on public.friend_share_settings;
+create trigger friend_share_settings_set_updated_at
+before insert or update on public.friend_share_settings
 for each row execute function public.set_updated_at();
 
 create or replace function public.clear_events_for_deleted_label()
@@ -415,6 +465,116 @@ begin
 end;
 $$ language plpgsql security definer set search_path = public;
 
+create or replace function public.get_friend_share_setting(p_friend_id uuid)
+returns table (
+  is_enabled boolean,
+  weeks_ahead integer,
+  selected_label_ids text[],
+  include_unlabeled boolean
+) as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+
+  if not exists (
+    select 1
+    from public.friendships f
+    where f.user_low_id = least(auth.uid(), p_friend_id)
+      and f.user_high_id = greatest(auth.uid(), p_friend_id)
+  ) then
+    raise exception 'not_friends' using errcode = 'P0001';
+  end if;
+
+  return query
+  select
+    coalesce(s.is_enabled, false),
+    coalesce(s.weeks_ahead, 1),
+    coalesce(s.selected_label_ids, '{}')::text[],
+    coalesce(s.include_unlabeled, true)
+  from (select 1) seed
+  left join public.friend_share_settings s
+    on s.owner_user_id = auth.uid()
+   and s.friend_user_id = p_friend_id
+  limit 1;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.upsert_friend_share_setting(
+  p_friend_id uuid,
+  p_is_enabled boolean,
+  p_weeks_ahead integer,
+  p_selected_label_ids text[],
+  p_include_unlabeled boolean
+)
+returns table (
+  is_enabled boolean,
+  weeks_ahead integer,
+  selected_label_ids text[],
+  include_unlabeled boolean
+) as $$
+declare
+  sanitized_label_ids text[];
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+
+  if not exists (
+    select 1
+    from public.friendships f
+    where f.user_low_id = least(auth.uid(), p_friend_id)
+      and f.user_high_id = greatest(auth.uid(), p_friend_id)
+  ) then
+    raise exception 'not_friends' using errcode = 'P0001';
+  end if;
+
+  select coalesce(array_agg(distinct label_id), '{}')::text[]
+  into sanitized_label_ids
+  from unnest(coalesce(p_selected_label_ids, '{}')::text[]) as requested(label_id)
+  where exists (
+    select 1
+    from public.labels l
+    where l.id = requested.label_id
+      and l.user_id = auth.uid()::text
+      and l.deleted_at is null
+  );
+
+  insert into public.friend_share_settings (
+    owner_user_id,
+    friend_user_id,
+    is_enabled,
+    weeks_ahead,
+    selected_label_ids,
+    include_unlabeled
+  )
+  values (
+    auth.uid(),
+    p_friend_id,
+    coalesce(p_is_enabled, false),
+    least(greatest(coalesce(p_weeks_ahead, 1), 1), 52),
+    sanitized_label_ids,
+    coalesce(p_include_unlabeled, true)
+  )
+  on conflict (owner_user_id, friend_user_id) do update
+  set
+    is_enabled = excluded.is_enabled,
+    weeks_ahead = excluded.weeks_ahead,
+    selected_label_ids = excluded.selected_label_ids,
+    include_unlabeled = excluded.include_unlabeled;
+
+  return query
+  select
+    s.is_enabled,
+    s.weeks_ahead,
+    s.selected_label_ids,
+    s.include_unlabeled
+  from public.friend_share_settings s
+  where s.owner_user_id = auth.uid()
+    and s.friend_user_id = p_friend_id;
+end;
+$$ language plpgsql security definer set search_path = public;
+
 create or replace function public.get_friend_shared_events(
   p_friend_id uuid,
   p_range_start timestamptz,
@@ -429,6 +589,11 @@ returns table (
   recurrence_rule text,
   color text
 ) as $$
+declare
+  share_setting public.friend_share_settings%rowtype;
+  seoul_today date;
+  allowed_start timestamptz;
+  allowed_end timestamptz;
 begin
   if auth.uid() is null then
     raise exception 'not_authenticated' using errcode = '28000';
@@ -440,6 +605,28 @@ begin
     where f.user_low_id = least(auth.uid(), p_friend_id)
       and f.user_high_id = greatest(auth.uid(), p_friend_id)
   ) then
+    return;
+  end if;
+
+  select *
+  into share_setting
+  from public.friend_share_settings s
+  where s.owner_user_id = p_friend_id
+    and s.friend_user_id = auth.uid()
+    and s.is_enabled = true
+  limit 1;
+
+  if share_setting.owner_user_id is null then
+    return;
+  end if;
+
+  seoul_today := (now() at time zone 'Asia/Seoul')::date;
+  allowed_start :=
+    ((seoul_today - extract(dow from seoul_today)::integer)::timestamp
+      at time zone 'Asia/Seoul');
+  allowed_end := allowed_start + (share_setting.weeks_ahead * interval '7 days');
+
+  if p_range_start >= allowed_end or p_range_end < allowed_start then
     return;
   end if;
 
@@ -468,8 +655,18 @@ begin
     where e.user_id = p_friend_id::text
       and e.deleted_at is null
       and (
-        (e.start_time <= p_range_end and e.end_time >= p_range_start)
-        or (e.recurrence_rule is not null and e.start_time <= p_range_end)
+        (e.label_id is null and share_setting.include_unlabeled)
+        or (e.label_id is not null and e.label_id = any(share_setting.selected_label_ids))
+      )
+      and (
+        (
+          e.start_time <= least(p_range_end, allowed_end)
+          and e.end_time >= greatest(p_range_start, allowed_start)
+        )
+        or (
+          e.recurrence_rule is not null
+          and e.start_time <= least(p_range_end, allowed_end)
+        )
       )
   )
   select
@@ -489,4 +686,6 @@ $$ language plpgsql security definer set search_path = public;
 grant execute on function public.get_friends() to authenticated;
 grant execute on function public.add_friend_by_username(text) to authenticated;
 grant execute on function public.remove_friend(uuid) to authenticated;
+grant execute on function public.get_friend_share_setting(uuid) to authenticated;
+grant execute on function public.upsert_friend_share_setting(uuid, boolean, integer, text[], boolean) to authenticated;
 grant execute on function public.get_friend_shared_events(uuid, timestamptz, timestamptz) to authenticated;

@@ -1,4 +1,6 @@
 import { router, Stack, useFocusEffect } from "expo-router";
+import { and, eq, isNull, ne } from "drizzle-orm";
+import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -21,10 +23,15 @@ import {
 } from "@/services/friendApi";
 import {
   fetchFriendSchedule,
+  fetchFriendShareSetting,
+  saveFriendShareSetting,
   saveFriendScheduleBundle,
+  type FriendShareSetting,
   type FriendScheduleEvent,
 } from "@/services/friendScheduleService";
 import { expandEventOccurrences } from "@/services/recurrence";
+import { db } from "@/database";
+import { labels } from "@/database/schema";
 import { useAuthStore } from "@/store/auth";
 import {
   addWeeks,
@@ -35,6 +42,14 @@ import {
 import WeekCalendarView, {
   type WeekCalendarEvent,
 } from "@/components/WeekCalendarView";
+
+const DEFAULT_FRIEND_SHARE_SETTING: FriendShareSetting = {
+  isEnabled: false,
+  weeksAhead: 1,
+  selectedLabelIds: [],
+  includeUnlabeled: true,
+};
+const WEEK_OPTIONS = [1, 2, 4, 8, 12];
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof FriendApiError) {
@@ -74,6 +89,26 @@ export default function FriendsScreen() {
   const [friendEvents, setFriendEvents] = useState<FriendScheduleEvent[]>([]);
   const [isScheduleLoading, setIsScheduleLoading] = useState(false);
   const [isSavingBundle, setIsSavingBundle] = useState(false);
+  const [settingsFriend, setSettingsFriend] = useState<FriendProfile | null>(null);
+  const [shareSetting, setShareSetting] = useState<FriendShareSetting>(
+    DEFAULT_FRIEND_SHARE_SETTING,
+  );
+  const [isShareSettingLoading, setIsShareSettingLoading] = useState(false);
+  const [isShareSettingSaving, setIsShareSettingSaving] = useState(false);
+  const { data: labelList = [] } = useLiveQuery(
+    db
+      .select()
+      .from(labels)
+      .where(
+        and(
+          eq(labels.userId, userId),
+          ne(labels.syncStatus, "pending_delete"),
+          isNull(labels.deletedAt),
+        ),
+      )
+      .orderBy(labels.name),
+    [userId],
+  );
   const friendWeekDates = useMemo(
     () => getWeekDates(friendWeekKey),
     [friendWeekKey],
@@ -214,6 +249,31 @@ export default function FriendsScreen() {
     };
   }, [friendWeekEnd, friendWeekStart, selectedFriend]);
 
+  useEffect(() => {
+    if (!settingsFriend) return;
+
+    let isActive = true;
+    setIsShareSettingLoading(true);
+    setShareSetting(DEFAULT_FRIEND_SHARE_SETTING);
+
+    fetchFriendShareSetting(settingsFriend.id)
+      .then((setting) => {
+        if (isActive) setShareSetting(setting);
+      })
+      .catch(() => {
+        if (isActive) {
+          setError("친구 공유 설정을 불러오지 못했습니다.");
+        }
+      })
+      .finally(() => {
+        if (isActive) setIsShareSettingLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [settingsFriend]);
+
   const openFriendSchedule = (friend: FriendProfile) => {
     setError(null);
     setMessage(null);
@@ -221,9 +281,64 @@ export default function FriendsScreen() {
     setFriendWeekKey(getCurrentWeekKey());
   };
 
+  const openShareSettings = (friend: FriendProfile) => {
+    setError(null);
+    setMessage(null);
+    setSettingsFriend(friend);
+  };
+
   const closeFriendSchedule = () => {
     setSelectedFriend(null);
     setFriendEvents([]);
+  };
+
+  const closeShareSettings = () => {
+    setSettingsFriend(null);
+    setShareSetting(DEFAULT_FRIEND_SHARE_SETTING);
+  };
+
+  const toggleShareLabel = (labelId: string) => {
+    setShareSetting((current) => {
+      const selected = current.selectedLabelIds.includes(labelId);
+      return {
+        ...current,
+        selectedLabelIds: selected
+          ? current.selectedLabelIds.filter((id) => id !== labelId)
+          : [...current.selectedLabelIds, labelId],
+      };
+    });
+  };
+
+  const handleSaveShareSettings = async () => {
+    if (!settingsFriend || isShareSettingSaving) return;
+
+    if (
+      shareSetting.isEnabled &&
+      shareSetting.selectedLabelIds.length === 0 &&
+      !shareSetting.includeUnlabeled
+    ) {
+      Alert.alert("공유할 일정 없음", "라벨을 하나 이상 선택하거나 라벨 없는 일정을 포함하세요.");
+      return;
+    }
+
+    setIsShareSettingSaving(true);
+    try {
+      const saved = await saveFriendShareSetting({
+        friendId: settingsFriend.id,
+        setting: shareSetting,
+      });
+      setShareSetting(saved);
+      setMessage(
+        saved.isEnabled
+          ? `${getProfileName(settingsFriend)}에게 상시 공유를 켰습니다.`
+          : `${getProfileName(settingsFriend)}에게 상시 공유를 껐습니다.`,
+      );
+      closeShareSettings();
+    } catch {
+      Alert.alert("저장 실패", "친구 공유 설정을 저장하지 못했습니다.");
+    } finally {
+      setIsShareSettingSaving(false);
+    }
   };
 
   const handleSaveFriendBundle = async () => {
@@ -332,6 +447,12 @@ export default function FriendsScreen() {
                 )}
               </View>
               <Pressable
+                onPress={() => openShareSettings(friend)}
+                style={styles.shareSettingsButton}
+              >
+                <Text style={styles.shareSettingsButtonText}>공유</Text>
+              </Pressable>
+              <Pressable
                 onPress={() => openFriendSchedule(friend)}
                 style={styles.scheduleButton}
               >
@@ -347,6 +468,170 @@ export default function FriendsScreen() {
           ))
         )}
       </ScrollView>
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={Boolean(settingsFriend)}
+        onRequestClose={closeShareSettings}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.settingsSheet}>
+            <View style={styles.sheetHeader}>
+              <View style={styles.sheetTitleBox}>
+                <Text style={styles.sheetTitle}>
+                  {settingsFriend ? getProfileName(settingsFriend) : "친구"} 공유
+                </Text>
+                <Text style={styles.sheetSubtitle}>내 일정을 친구에게 보여줍니다.</Text>
+              </View>
+              <Pressable onPress={closeShareSettings}>
+                <Text style={styles.closeText}>닫기</Text>
+              </Pressable>
+            </View>
+
+            {isShareSettingLoading ? (
+              <View style={styles.settingsLoadingBox}>
+                <ActivityIndicator />
+              </View>
+            ) : (
+              <>
+                <Pressable
+                  style={[
+                    styles.toggleShareButton,
+                    shareSetting.isEnabled && styles.toggleShareButtonOn,
+                  ]}
+                  onPress={() =>
+                    setShareSetting((current) => ({
+                      ...current,
+                      isEnabled: !current.isEnabled,
+                    }))
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.toggleShareButtonText,
+                      shareSetting.isEnabled && styles.toggleShareButtonTextOn,
+                    ]}
+                  >
+                    {shareSetting.isEnabled ? "상시 공유 켜짐" : "상시 공유 꺼짐"}
+                  </Text>
+                </Pressable>
+
+                <Text style={styles.settingLabel}>공유 기간</Text>
+                <View style={styles.optionRow}>
+                  {WEEK_OPTIONS.map((weeks) => {
+                    const selected = shareSetting.weeksAhead === weeks;
+                    return (
+                      <Pressable
+                        key={weeks}
+                        disabled={!shareSetting.isEnabled}
+                        style={[
+                          styles.optionChip,
+                          selected && styles.optionChipSelected,
+                          !shareSetting.isEnabled && styles.optionChipDisabled,
+                        ]}
+                        onPress={() =>
+                          setShareSetting((current) => ({
+                            ...current,
+                            weeksAhead: weeks,
+                          }))
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.optionText,
+                            selected && styles.optionTextSelected,
+                          ]}
+                        >
+                          {weeks}주
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.settingLabel}>공유할 라벨</Text>
+                <ScrollView style={styles.settingsScroll}>
+                  <View style={styles.shareLabelGrid}>
+                    {labelList.map((label) => {
+                      const selected = shareSetting.selectedLabelIds.includes(label.id);
+
+                      return (
+                        <Pressable
+                          key={label.id}
+                          disabled={!shareSetting.isEnabled}
+                          style={[
+                            styles.shareLabelChip,
+                            selected && styles.shareLabelChipSelected,
+                            !shareSetting.isEnabled && styles.optionChipDisabled,
+                          ]}
+                          onPress={() => toggleShareLabel(label.id)}
+                        >
+                          <View
+                            style={[
+                              styles.labelDot,
+                              { backgroundColor: label.color },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.shareLabelText,
+                              selected && styles.shareLabelTextSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {label.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                    <Pressable
+                      disabled={!shareSetting.isEnabled}
+                      style={[
+                        styles.shareLabelChip,
+                        shareSetting.includeUnlabeled && styles.shareLabelChipSelected,
+                        !shareSetting.isEnabled && styles.optionChipDisabled,
+                      ]}
+                      onPress={() =>
+                        setShareSetting((current) => ({
+                          ...current,
+                          includeUnlabeled: !current.includeUnlabeled,
+                        }))
+                      }
+                    >
+                      <View style={[styles.labelDot, styles.unlabeledDot]} />
+                      <Text
+                        style={[
+                          styles.shareLabelText,
+                          shareSetting.includeUnlabeled &&
+                            styles.shareLabelTextSelected,
+                        ]}
+                      >
+                        라벨 없음
+                      </Text>
+                    </Pressable>
+                  </View>
+                </ScrollView>
+
+                <Pressable
+                  disabled={isShareSettingSaving}
+                  onPress={handleSaveShareSettings}
+                  style={[
+                    styles.saveBundleButton,
+                    isShareSettingSaving && styles.disabledButton,
+                  ]}
+                >
+                  {isShareSettingSaving ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={styles.saveBundleButtonText}>저장</Text>
+                  )}
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="slide"
@@ -569,10 +854,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  shareSettingsButton: {
+    backgroundColor: "#6C8AE4",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  shareSettingsButtonText: {
+    color: "#FFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   modalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  settingsSheet: {
+    maxHeight: "86%",
+    backgroundColor: "#FFF",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 18,
   },
   scheduleSheet: {
     maxHeight: "92%",
@@ -605,6 +908,108 @@ const styles = StyleSheet.create({
     color: "#111",
     fontSize: 15,
     fontWeight: "700",
+  },
+  settingsLoadingBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 180,
+  },
+  toggleShareButton: {
+    alignItems: "center",
+    borderColor: "#DDD",
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  toggleShareButtonOn: {
+    backgroundColor: "#111",
+    borderColor: "#111",
+  },
+  toggleShareButtonText: {
+    color: "#333",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  toggleShareButtonTextOn: {
+    color: "#FFF",
+  },
+  settingLabel: {
+    color: "#111",
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  optionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  optionChip: {
+    alignItems: "center",
+    backgroundColor: "#FAFAFA",
+    borderColor: "#DDD",
+    borderRadius: 17,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: 12,
+  },
+  optionChipSelected: {
+    backgroundColor: "#111",
+    borderColor: "#111",
+  },
+  optionChipDisabled: {
+    opacity: 0.4,
+  },
+  optionText: {
+    color: "#333",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  optionTextSelected: {
+    color: "#FFF",
+  },
+  settingsScroll: {
+    maxHeight: 240,
+  },
+  shareLabelGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  shareLabelChip: {
+    alignItems: "center",
+    backgroundColor: "#FAFAFA",
+    borderColor: "#DDD",
+    borderRadius: 17,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    maxWidth: "48%",
+    minHeight: 34,
+    paddingHorizontal: 11,
+  },
+  shareLabelChipSelected: {
+    backgroundColor: "#111",
+    borderColor: "#111",
+  },
+  labelDot: {
+    borderRadius: 7,
+    height: 14,
+    width: 14,
+  },
+  unlabeledDot: {
+    backgroundColor: "#AAA",
+  },
+  shareLabelText: {
+    color: "#333",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  shareLabelTextSelected: {
+    color: "#FFF",
   },
   weekBar: {
     alignItems: "center",

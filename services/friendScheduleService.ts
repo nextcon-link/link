@@ -18,6 +18,13 @@ export type FriendScheduleEvent = {
   color: string;
 };
 
+export type FriendShareSetting = {
+  isEnabled: boolean;
+  weeksAhead: number;
+  selectedLabelIds: string[];
+  includeUnlabeled: boolean;
+};
+
 type FriendScheduleRow = {
   id: string;
   title: string;
@@ -28,8 +35,53 @@ type FriendScheduleRow = {
   color: string | null;
 };
 
+type FriendShareSettingRow = {
+  is_enabled: boolean;
+  weeks_ahead: number;
+  selected_label_ids: string[] | null;
+  include_unlabeled: boolean;
+};
+
 function getFriendName(friend: Pick<FriendProfile, "display_name" | "username">) {
   return friend.display_name || friend.username || "친구";
+}
+
+function toFriendShareSetting(row: FriendShareSettingRow): FriendShareSetting {
+  return {
+    isEnabled: row.is_enabled,
+    weeksAhead: row.weeks_ahead,
+    selectedLabelIds: row.selected_label_ids ?? [],
+    includeUnlabeled: row.include_unlabeled,
+  };
+}
+
+export async function fetchFriendShareSetting(
+  friendId: string,
+): Promise<FriendShareSetting> {
+  const { data, error } = await supabase
+    .rpc("get_friend_share_setting", { p_friend_id: friendId })
+    .single();
+
+  if (error) throw error;
+  return toFriendShareSetting(data as FriendShareSettingRow);
+}
+
+export async function saveFriendShareSetting(input: {
+  friendId: string;
+  setting: FriendShareSetting;
+}): Promise<FriendShareSetting> {
+  const { data, error } = await supabase
+    .rpc("upsert_friend_share_setting", {
+      p_friend_id: input.friendId,
+      p_is_enabled: input.setting.isEnabled,
+      p_weeks_ahead: input.setting.weeksAhead,
+      p_selected_label_ids: input.setting.selectedLabelIds,
+      p_include_unlabeled: input.setting.includeUnlabeled,
+    })
+    .single();
+
+  if (error) throw error;
+  return toFriendShareSetting(data as FriendShareSettingRow);
 }
 
 export async function fetchFriendSchedule(input: {
