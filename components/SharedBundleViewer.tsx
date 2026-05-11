@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -33,7 +34,27 @@ export type GeneratedShareQr = {
     isAllDay: boolean;
   }[];
   eventCount: number;
+  expiresAt: number | null;
   title: string;
+};
+
+export type ShareLabelOption = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+export type ShareRangePreset = "this_week" | "two_weeks" | "custom";
+export type ShareExpiryPreset = "none" | "1" | "7" | "14" | "custom";
+
+export type ShareQrSettings = {
+  selectedLabelIds: string[];
+  includeUnlabeled: boolean;
+  rangePreset: ShareRangePreset;
+  customStartDate: string;
+  customEndDate: string;
+  expiryPreset: ShareExpiryPreset;
+  customExpiryDays: string;
 };
 
 type Props = {
@@ -44,7 +65,19 @@ type Props = {
   defaultSelectedSourceIds?: string[];
   generatedQr?: GeneratedShareQr | null;
   isCreatingQr?: boolean;
-  onCreateQr?: () => void;
+  shareLabelOptions?: ShareLabelOption[];
+  shareSettings?: ShareQrSettings;
+  sharePreviewEvents?: WeekCalendarEvent[];
+  sharePreviewWeekKey?: string;
+  shareRangeSummary?: string;
+  shareExpirySummary?: string;
+  shareSettingsError?: string | null;
+  canSharePreviewPreviousWeek?: boolean;
+  canSharePreviewNextWeek?: boolean;
+  onShareSettingsChange?: (settings: ShareQrSettings) => void;
+  onSharePreviewPreviousWeek?: () => void;
+  onSharePreviewNextWeek?: () => void;
+  onCreateQr?: (settings: ShareQrSettings) => void;
   onCloseQr?: () => void;
   onDeleteSource?: (sourceId: string) => void;
   onChangeSourceColor?: (sourceId: string, color: string) => void | Promise<void>;
@@ -60,6 +93,20 @@ const BUNDLE_COLORS = [
   "#3BAF7A",
   "#F5D76E",
   "#C184D8",
+];
+
+const RANGE_OPTIONS: { value: ShareRangePreset; label: string }[] = [
+  { value: "this_week", label: "이번주" },
+  { value: "two_weeks", label: "이번주+다음주" },
+  { value: "custom", label: "기타" },
+];
+
+const EXPIRY_OPTIONS: { value: ShareExpiryPreset; label: string }[] = [
+  { value: "none", label: "없음" },
+  { value: "1", label: "1일" },
+  { value: "7", label: "7일" },
+  { value: "14", label: "14일" },
+  { value: "custom", label: "기타" },
 ];
 
 function QrMatrix({ matrix }: { matrix: boolean[][] }) {
@@ -82,20 +129,13 @@ function QrMatrix({ matrix }: { matrix: boolean[][] }) {
   );
 }
 
-function formatPreviewTime(startTime: number, endTime: number, isAllDay: boolean) {
-  if (isAllDay) return "종일";
+function formatExpiry(expiresAt: number | null | undefined) {
+  if (!expiresAt) return "사라지지 않음";
 
-  const start = new Date(startTime);
-  const end = new Date(endTime);
-  const date = `${start.getMonth() + 1}/${start.getDate()}`;
-  const startText = `${String(start.getHours()).padStart(2, "0")}:${String(
-    start.getMinutes(),
-  ).padStart(2, "0")}`;
-  const endText = `${String(end.getHours()).padStart(2, "0")}:${String(
-    end.getMinutes(),
-  ).padStart(2, "0")}`;
-
-  return `${date} ${startText}-${endText}`;
+  const date = new Date(expiresAt);
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(
+    date.getHours(),
+  ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} 이후 사라짐`;
 }
 
 export default function SharedBundleViewer({
@@ -106,6 +146,18 @@ export default function SharedBundleViewer({
   defaultSelectedSourceIds = [],
   generatedQr,
   isCreatingQr = false,
+  shareLabelOptions = [],
+  shareSettings,
+  sharePreviewEvents = [],
+  sharePreviewWeekKey,
+  shareRangeSummary,
+  shareExpirySummary,
+  shareSettingsError,
+  canSharePreviewPreviousWeek = false,
+  canSharePreviewNextWeek = false,
+  onShareSettingsChange,
+  onSharePreviewPreviousWeek,
+  onSharePreviewNextWeek,
   onCreateQr,
   onCloseQr,
   onDeleteSource,
@@ -118,10 +170,11 @@ export default function SharedBundleViewer({
     defaultSelectedSourceIds,
   );
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isQrVisible, setIsQrVisible] = useState(false);
 
   useEffect(() => {
-    setIsQrVisible(false);
+    if (generatedQr) setIsQrVisible(true);
   }, [generatedQr]);
 
   const calendarEvents = useMemo(() => {
@@ -152,7 +205,24 @@ export default function SharedBundleViewer({
     );
   };
 
+  const updateShareSettings = (patch: Partial<ShareQrSettings>) => {
+    if (!shareSettings) return;
+    onShareSettingsChange?.({ ...shareSettings, ...patch });
+  };
+
+  const toggleShareLabel = (id: string) => {
+    if (!shareSettings) return;
+
+    const selected = shareSettings.selectedLabelIds.includes(id);
+    updateShareSettings({
+      selectedLabelIds: selected
+        ? shareSettings.selectedLabelIds.filter((labelId) => labelId !== id)
+        : [...shareSettings.selectedLabelIds, id],
+    });
+  };
+
   const closeShareModal = () => {
+    setIsShareModalOpen(false);
     setIsQrVisible(false);
     onCloseQr?.();
   };
@@ -196,11 +266,14 @@ export default function SharedBundleViewer({
       </View>
 
       <View style={styles.actionDock}>
-        {onCreateQr && (
+        {onCreateQr && shareSettings && (
           <Pressable
             style={[styles.actionButton, styles.qrButton]}
             disabled={isCreatingQr}
-            onPress={onCreateQr}
+            onPress={() => {
+              setIsQrVisible(false);
+              setIsShareModalOpen(true);
+            }}
           >
             {isCreatingQr ? (
               <ActivityIndicator color="#111" />
@@ -304,7 +377,7 @@ export default function SharedBundleViewer({
       <Modal
         animationType="fade"
         transparent
-        visible={Boolean(generatedQr)}
+        visible={isShareModalOpen}
         onRequestClose={closeShareModal}
       >
         <View style={styles.qrBackdrop}>
@@ -315,7 +388,9 @@ export default function SharedBundleViewer({
                   {isQrVisible ? "딥링크 QR" : "공유 미리보기"}
                 </Text>
                 <Text style={styles.qrSubtitle}>
-                  {generatedQr?.eventCount ?? 0}개 일정 포함
+                  {isQrVisible
+                    ? formatExpiry(generatedQr?.expiresAt)
+                    : `${sharePreviewEvents.length}개 일정 포함`}
                 </Text>
               </View>
               <Pressable onPress={closeShareModal}>
@@ -323,34 +398,210 @@ export default function SharedBundleViewer({
               </Pressable>
             </View>
 
-            {generatedQr && !isQrVisible && (
+            {!isQrVisible && shareSettings && (
               <>
-                <Text style={styles.previewTitle}>{generatedQr.title}</Text>
-                <ScrollView style={styles.previewList}>
-                  {generatedQr.events.length === 0 ? (
-                    <Text style={styles.previewEmpty}>
-                      공유 가능한 일정이 없습니다.
-                    </Text>
-                  ) : (
-                    generatedQr.events.map((event, index) => (
-                      <View key={`${event.startTime}:${index}`} style={styles.previewRow}>
-                        <Text style={styles.previewEventTitle}>{event.title}</Text>
-                        <Text style={styles.previewEventTime}>
-                          {formatPreviewTime(
-                            event.startTime,
-                            event.endTime,
-                            event.isAllDay,
-                          )}
-                        </Text>
-                      </View>
-                    ))
+                <ScrollView style={styles.shareSettingsScroll}>
+                  <Text style={styles.previewTitle}>{shareRangeSummary}</Text>
+                  <Text style={styles.previewMeta}>{shareExpirySummary}</Text>
+
+                  <Text style={styles.settingLabel}>공유할 라벨</Text>
+                  <View style={styles.shareLabelGrid}>
+                    {shareLabelOptions.map((label) => {
+                      const selected = shareSettings.selectedLabelIds.includes(label.id);
+
+                      return (
+                        <Pressable
+                          key={label.id}
+                          style={[
+                            styles.shareLabelChip,
+                            selected && styles.shareLabelChipSelected,
+                          ]}
+                          onPress={() => toggleShareLabel(label.id)}
+                        >
+                          <View
+                            style={[
+                              styles.sourceColor,
+                              { backgroundColor: label.color },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.shareLabelText,
+                              selected && styles.shareLabelTextSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {label.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                    <Pressable
+                      style={[
+                        styles.shareLabelChip,
+                        shareSettings.includeUnlabeled && styles.shareLabelChipSelected,
+                      ]}
+                      onPress={() =>
+                        updateShareSettings({
+                          includeUnlabeled: !shareSettings.includeUnlabeled,
+                        })
+                      }
+                    >
+                      <View style={[styles.sourceColor, styles.unlabeledDot]} />
+                      <Text
+                        style={[
+                          styles.shareLabelText,
+                          shareSettings.includeUnlabeled &&
+                            styles.shareLabelTextSelected,
+                        ]}
+                      >
+                        라벨 없음
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <Text style={styles.settingLabel}>공유할 기간</Text>
+                  <View style={styles.optionRow}>
+                    {RANGE_OPTIONS.map((option) => {
+                      const selected = shareSettings.rangePreset === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          style={[
+                            styles.optionChip,
+                            selected && styles.optionChipSelected,
+                          ]}
+                          onPress={() =>
+                            updateShareSettings({ rangePreset: option.value })
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.optionText,
+                              selected && styles.optionTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {shareSettings.rangePreset === "custom" && (
+                    <View style={styles.inputRow}>
+                      <TextInput
+                        style={styles.dateInput}
+                        value={shareSettings.customStartDate}
+                        onChangeText={(customStartDate) =>
+                          updateShareSettings({ customStartDate })
+                        }
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor="#999"
+                      />
+                      <Text style={styles.inputDash}>-</Text>
+                      <TextInput
+                        style={styles.dateInput}
+                        value={shareSettings.customEndDate}
+                        onChangeText={(customEndDate) =>
+                          updateShareSettings({ customEndDate })
+                        }
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor="#999"
+                      />
+                    </View>
                   )}
+
+                  <Text style={styles.settingLabel}>상대방 화면에서 사라지는 기간</Text>
+                  <View style={styles.optionRow}>
+                    {EXPIRY_OPTIONS.map((option) => {
+                      const selected = shareSettings.expiryPreset === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          style={[
+                            styles.optionChip,
+                            selected && styles.optionChipSelected,
+                          ]}
+                          onPress={() =>
+                            updateShareSettings({ expiryPreset: option.value })
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.optionText,
+                              selected && styles.optionTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {shareSettings.expiryPreset === "custom" && (
+                    <TextInput
+                      style={styles.daysInput}
+                      value={shareSettings.customExpiryDays}
+                      onChangeText={(customExpiryDays) =>
+                        updateShareSettings({ customExpiryDays })
+                      }
+                      keyboardType="number-pad"
+                      placeholder="일수"
+                      placeholderTextColor="#999"
+                    />
+                  )}
+
+                  {shareSettingsError && (
+                    <Text style={styles.previewError}>{shareSettingsError}</Text>
+                  )}
+
+                  <View style={styles.previewCalendarHeader}>
+                    <Pressable
+                      style={[
+                        styles.miniWeekButton,
+                        !canSharePreviewPreviousWeek && styles.disabledButton,
+                      ]}
+                      disabled={!canSharePreviewPreviousWeek}
+                      onPress={onSharePreviewPreviousWeek}
+                    >
+                      <Text style={styles.miniWeekButtonText}>이전</Text>
+                    </Pressable>
+                    <Text style={styles.previewMeta}>
+                      {sharePreviewWeekKey ?? weekKey}
+                    </Text>
+                    <Pressable
+                      style={[
+                        styles.miniWeekButton,
+                        !canSharePreviewNextWeek && styles.disabledButton,
+                      ]}
+                      disabled={!canSharePreviewNextWeek}
+                      onPress={onSharePreviewNextWeek}
+                    >
+                      <Text style={styles.miniWeekButtonText}>다음</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.previewCalendarBox}>
+                    <WeekCalendarView
+                      weekKey={sharePreviewWeekKey ?? weekKey}
+                      events={sharePreviewEvents}
+                      emptyText="공유 가능한 일정이 없습니다."
+                    />
+                  </View>
                 </ScrollView>
+
                 <Pressable
-                  style={styles.primaryShareButton}
-                  onPress={() => setIsQrVisible(true)}
+                  style={[
+                    styles.primaryShareButton,
+                    Boolean(shareSettingsError) && styles.primaryShareButtonDisabled,
+                  ]}
+                  disabled={Boolean(shareSettingsError) || isCreatingQr}
+                  onPress={() => onCreateQr?.(shareSettings)}
                 >
-                  <Text style={styles.primaryShareButtonText}>QR 보기</Text>
+                  {isCreatingQr ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={styles.primaryShareButtonText}>QR 보기</Text>
+                  )}
                 </Pressable>
               </>
             )}
@@ -359,6 +610,9 @@ export default function SharedBundleViewer({
               <>
                 <QrMatrix matrix={generatedQr.qrMatrix} />
                 <Text style={styles.qrTitle}>{generatedQr.title}</Text>
+                <Text style={styles.qrSubtitle}>
+                  {generatedQr.eventCount}개 일정 포함
+                </Text>
               </>
             )}
           </View>
@@ -563,50 +817,168 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.35)",
-    padding: 24,
+    padding: 14,
   },
   qrSheet: {
     width: "100%",
-    maxWidth: 380,
-    maxHeight: "82%",
+    maxWidth: 520,
+    maxHeight: "92%",
     borderRadius: 18,
     backgroundColor: "#FFF",
-    padding: 20,
+    padding: 18,
   },
   qrSubtitle: {
     color: "#666",
     fontSize: 13,
     marginTop: 2,
+    textAlign: "center",
+  },
+  shareSettingsScroll: {
+    maxHeight: 560,
   },
   previewTitle: {
     color: "#111",
     fontSize: 15,
     fontWeight: "800",
-    marginBottom: 12,
+    marginBottom: 4,
   },
-  previewList: {
-    maxHeight: 320,
-  },
-  previewRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEE",
-    paddingVertical: 12,
-  },
-  previewEventTitle: {
-    color: "#111",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  previewEventTime: {
+  previewMeta: {
     color: "#666",
     fontSize: 13,
-    marginTop: 4,
+    fontWeight: "700",
   },
-  previewEmpty: {
-    color: "#777",
+  settingLabel: {
+    color: "#111",
     fontSize: 14,
-    paddingVertical: 24,
-    textAlign: "center",
+    fontWeight: "800",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  shareLabelGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  shareLabelChip: {
+    minHeight: 34,
+    maxWidth: "48%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 17,
+    backgroundColor: "#FAFAFA",
+    paddingHorizontal: 11,
+  },
+  shareLabelChipSelected: {
+    borderColor: "#111",
+    backgroundColor: "#111",
+  },
+  shareLabelText: {
+    color: "#333",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  shareLabelTextSelected: {
+    color: "#FFF",
+  },
+  unlabeledDot: {
+    backgroundColor: "#AAA",
+  },
+  optionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  optionChip: {
+    minHeight: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 17,
+    backgroundColor: "#FAFAFA",
+    paddingHorizontal: 12,
+  },
+  optionChipSelected: {
+    borderColor: "#111",
+    backgroundColor: "#111",
+  },
+  optionText: {
+    color: "#333",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  optionTextSelected: {
+    color: "#FFF",
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  dateInput: {
+    flex: 1,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 10,
+    color: "#111",
+    fontSize: 14,
+    paddingHorizontal: 10,
+  },
+  inputDash: {
+    color: "#666",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  daysInput: {
+    width: 100,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 10,
+    color: "#111",
+    fontSize: 14,
+    marginTop: 8,
+    paddingHorizontal: 10,
+  },
+  previewError: {
+    color: "#B3261E",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 10,
+  },
+  previewCalendarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  miniWeekButton: {
+    minHeight: 30,
+    justifyContent: "center",
+    borderRadius: 15,
+    backgroundColor: "#F2F2F2",
+    paddingHorizontal: 12,
+  },
+  miniWeekButtonText: {
+    color: "#222",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  disabledButton: {
+    opacity: 0.35,
+  },
+  previewCalendarBox: {
+    height: 360,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#EEE",
+    borderRadius: 8,
   },
   primaryShareButton: {
     minHeight: 46,
@@ -615,6 +987,9 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     backgroundColor: "#111",
     marginTop: 16,
+  },
+  primaryShareButtonDisabled: {
+    opacity: 0.4,
   },
   primaryShareButtonText: {
     color: "#FFF",
