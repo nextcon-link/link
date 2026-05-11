@@ -39,6 +39,10 @@ export type WeekCalendarEvent = {
   editable?: boolean;
   editEventId?: string;
   layoutGroupId?: string;
+  shareOverrideKey?: string;
+  shareVisibility?: "visible" | "blind" | "invisible";
+  shareDefaultVisibility?: "visible" | "blind" | "invisible";
+  originalTitle?: string;
 };
 
 type Props = {

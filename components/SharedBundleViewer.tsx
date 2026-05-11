@@ -47,11 +47,13 @@ export type ShareLabelOption = {
 
 export type ShareRangePreset = "this_week" | "two_weeks" | "custom";
 export type ShareExpiryPreset = "none" | "1" | "7" | "14" | "custom";
+export type ShareVisibilityOverride = "visible" | "blind" | "invisible";
 
 export type ShareQrSettings = {
   bundleTitle: string;
   selectedLabelIds: string[];
   includeUnlabeled: boolean;
+  eventVisibilityOverrides: Record<string, ShareVisibilityOverride>;
   rangePreset: ShareRangePreset;
   customStartDate: string;
   customEndDate: string;
@@ -76,9 +78,11 @@ type Props = {
   shareSettingsError?: string | null;
   canSharePreviewPreviousWeek?: boolean;
   canSharePreviewNextWeek?: boolean;
+  shareIncludedEventCount?: number;
   onShareSettingsChange?: (settings: ShareQrSettings) => void;
   onSharePreviewPreviousWeek?: () => void;
   onSharePreviewNextWeek?: () => void;
+  onSharePreviewEventPress?: (event: WeekCalendarEvent) => void;
   onCreateQr?: (settings: ShareQrSettings) => void;
   onCloseQr?: () => void;
   onDeleteSource?: (sourceId: string) => void;
@@ -159,9 +163,11 @@ export default function SharedBundleViewer({
   shareSettingsError,
   canSharePreviewPreviousWeek = false,
   canSharePreviewNextWeek = false,
+  shareIncludedEventCount,
   onShareSettingsChange,
   onSharePreviewPreviousWeek,
   onSharePreviewNextWeek,
+  onSharePreviewEventPress,
   onCreateQr,
   onCloseQr,
   onDeleteSource,
@@ -396,7 +402,7 @@ export default function SharedBundleViewer({
                 <Text style={styles.qrSubtitle}>
                   {isQrVisible
                     ? formatExpiry(generatedQr?.expiresAt)
-                    : `${sharePreviewEvents.length}개 일정 포함`}
+                    : `${shareIncludedEventCount ?? sharePreviewEvents.length}개 일정 포함`}
                 </Text>
               </View>
               <Pressable onPress={closeShareModal}>
@@ -456,8 +462,12 @@ export default function SharedBundleViewer({
                       contentPaddingHorizontal={8}
                       nestedScrollEnabled
                       horizontalScrollEnabled
+                      onEventPress={onSharePreviewEventPress}
                     />
                   </View>
+                  <Text style={styles.previewHint}>
+                    일정을 눌러 이 QR에서만 공개 상태를 바꿀 수 있어요.
+                  </Text>
 
                   <Text style={styles.settingLabel}>공유할 기간</Text>
                   <Text style={styles.previewMeta}>{shareRangeSummary}</Text>
@@ -939,6 +949,12 @@ const styles = StyleSheet.create({
     color: "#666",
     fontSize: 13,
     fontWeight: "700",
+  },
+  previewHint: {
+    color: "#777",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 8,
   },
   titleInput: {
     minHeight: 42,

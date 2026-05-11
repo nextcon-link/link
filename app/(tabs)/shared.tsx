@@ -8,6 +8,7 @@ import SharedBundleViewer, {
   type GeneratedShareQr,
   type ShareLabelOption,
   type ShareQrSettings,
+  type ShareVisibilityOverride,
   type SharedBundleSource,
 } from "@/components/SharedBundleViewer";
 import type { WeekCalendarEvent } from "@/components/WeekCalendarView";
@@ -39,6 +40,7 @@ import { sharingMode } from "@/utils/events";
 const MY_CALENDAR_ID = "mine";
 const MY_CALENDAR_COLOR = "#9FF4E2";
 const BLIND_TITLE = "블라인드";
+type ShareVisibility = ShareVisibilityOverride;
 
 type LocalEventRow = {
   event: typeof events.$inferSelect;
@@ -57,6 +59,7 @@ const DEFAULT_SHARE_SETTINGS: ShareQrSettings = {
   bundleTitle: "",
   selectedLabelIds: [],
   includeUnlabeled: true,
+  eventVisibilityOverrides: {},
   rangePreset: "this_week",
   customStartDate: "",
   customEndDate: "",
@@ -197,20 +200,36 @@ function formatBundleSubtitle(ownerName: string, expiresAt: number | null) {
   )} 사라짐`;
 }
 
-function resolveSharedTitle(row: LocalEventRow) {
+function resolveShareVisibility(row: LocalEventRow): ShareVisibility {
   const eventMode = row.event.sharingMode as sharingMode;
 
-  if (eventMode === "visible") return row.event.title;
-  if (eventMode === "blind") return BLIND_TITLE;
-  if (eventMode === "invisible") return null;
+  if (eventMode === "visible") return "visible";
+  if (eventMode === "blind") return "blind";
+  if (eventMode === "invisible") return "invisible";
 
   const labelMode = row.label?.sharingMode as sharingMode | undefined;
 
   if (!labelMode || labelMode === "none" || labelMode === "visible") {
-    return row.event.title;
+    return "visible";
   }
-  if (labelMode === "blind") return BLIND_TITLE;
-  return null;
+  if (labelMode === "blind") return "blind";
+  return "invisible";
+}
+
+function getPreviewTitle(row: LocalEventRow, visibility: ShareVisibility) {
+  if (visibility === "visible") return row.event.title;
+  if (visibility === "blind") return BLIND_TITLE;
+  return "비공개";
+}
+
+function getShareOverrideKey(eventId: string, occurrenceStartTime: number) {
+  return `${eventId}:${occurrenceStartTime}`;
+}
+
+function getNextVisibility(visibility: ShareVisibility): ShareVisibility {
+  if (visibility === "visible") return "blind";
+  if (visibility === "blind") return "invisible";
+  return "visible";
 }
 
 export default function SharedScreen() {
@@ -454,9 +473,6 @@ export default function SharedScreen() {
           return [];
         }
 
-        const title = resolveSharedTitle(row);
-        if (!title) return [];
-
         return expandEventOccurrences(
           row.event,
           new Date(shareRange.start),
@@ -466,27 +482,52 @@ export default function SharedScreen() {
             (event) =>
               event.startTime <= shareRange.end && event.endTime >= shareRange.start,
           )
-          .map((event) => ({
-            id: `share-preview:${event.id}`,
-            title,
-            startTime: event.startTime,
-            endTime: event.endTime,
-            isAllDay: event.isAllDay,
-            color: row.label?.color ?? MY_CALENDAR_COLOR,
-            source: row.event.labelId ?? "unlabeled",
-            editable: false,
-            layoutGroupId: row.event.labelId ?? "unlabeled",
-          }));
+          .map((event) => {
+            const overrideKey = getShareOverrideKey(
+              event.originalEventId,
+              event.occurrenceStartTime,
+            );
+            const defaultVisibility = resolveShareVisibility(row);
+            const visibility =
+              shareSettings.eventVisibilityOverrides[overrideKey] ??
+              defaultVisibility;
+
+            return {
+              id: `share-preview:${event.id}`,
+              title: getPreviewTitle(row, visibility),
+              startTime: event.startTime,
+              endTime: event.endTime,
+              isAllDay: event.isAllDay,
+              color: row.label?.color ?? MY_CALENDAR_COLOR,
+              opacity: visibility === "invisible" ? 0.32 : 1,
+              source: row.event.labelId ?? "unlabeled",
+              editable: false,
+              layoutGroupId: row.event.labelId ?? "unlabeled",
+              shareOverrideKey: overrideKey,
+              shareVisibility: visibility,
+              shareDefaultVisibility: defaultVisibility,
+              originalTitle: row.event.title,
+            } satisfies WeekCalendarEvent;
+          });
       })
       .sort((a, b) => a.startTime - b.startTime);
   }, [
     shareRange.end,
     shareRange.start,
     shareRows,
+    shareSettings.eventVisibilityOverrides,
     shareSettings.includeUnlabeled,
     shareSettings.selectedLabelIds,
     shareSettingsError,
   ]);
+
+  const shareIncludedEventCount = useMemo(
+    () =>
+      sharePreviewEvents.filter(
+        (event) => event.shareVisibility !== "invisible",
+      ).length,
+    [sharePreviewEvents],
+  );
 
   const canSharePreviewPreviousWeek = useMemo(() => {
     if (shareSettingsError) return false;
@@ -548,6 +589,7 @@ export default function SharedScreen() {
         rangeEnd: range.end,
         selectedLabelIds: settings.selectedLabelIds,
         includeUnlabeled: settings.includeUnlabeled,
+        eventVisibilityOverrides: settings.eventVisibilityOverrides,
         expiresAt: getExpiresAt(settings, Date.now()),
       });
       setQr(result);
@@ -566,6 +608,20 @@ export default function SharedScreen() {
     await updateSharedBundleColor(bundleId, userId, color);
   };
 
+  const cycleSharePreviewEvent = (event: WeekCalendarEvent) => {
+    if (!event.shareOverrideKey || !event.shareVisibility) return;
+
+    const nextVisibility = getNextVisibility(event.shareVisibility);
+    const overrideKey = event.shareOverrideKey;
+    setShareSettings((current) => ({
+      ...current,
+      eventVisibilityOverrides: {
+        ...current.eventVisibilityOverrides,
+        [overrideKey]: nextVisibility,
+      },
+    }));
+  };
+
   return (
     <SharedBundleViewer
       weekKey={weekKey}
@@ -576,6 +632,7 @@ export default function SharedScreen() {
       shareLabelOptions={shareLabelOptions}
       shareSettings={shareSettings}
       sharePreviewEvents={sharePreviewEvents}
+      shareIncludedEventCount={shareIncludedEventCount}
       sharePreviewWeekKey={sharePreviewWeekKey}
       shareRangeSummary={formatRangeSummary(shareRange)}
       shareExpirySummary={formatExpirySummary(shareSettings)}
@@ -589,8 +646,15 @@ export default function SharedScreen() {
       onSharePreviewNextWeek={() =>
         setSharePreviewWeekKey((current) => addWeeks(current, 1))
       }
+      onSharePreviewEventPress={cycleSharePreviewEvent}
       onCreateQr={createQr}
-      onCloseQr={() => setQr(null)}
+      onCloseQr={() => {
+        setQr(null);
+        setShareSettings((current) => ({
+          ...current,
+          eventVisibilityOverrides: {},
+        }));
+      }}
       onDeleteSource={removeBundle}
       onChangeSourceColor={changeBundleColor}
       onPreviousWeek={() => setWeekKey((current) => addWeeks(current, -1))}

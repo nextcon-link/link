@@ -16,6 +16,7 @@ import { generateId } from "@/utils/uuid";
 const BLIND_TITLE = "블라인드";
 const DEFAULT_BUNDLE_COLOR = "#6C8AE4";
 const SHARE_PAYLOAD_VERSION = 2;
+type ShareVisibility = "visible" | "blind" | "invisible";
 
 export type SharedBundlePayloadEvent = {
   title: string;
@@ -57,20 +58,30 @@ function getOwnerName(user: {
   return user.email?.split("@")[0] || "공유 사용자";
 }
 
-function resolveSharedTitle(row: LocalEventRow): string | null {
+function resolveShareVisibility(row: LocalEventRow): ShareVisibility {
   const eventMode = row.event.sharingMode as sharingMode;
 
-  if (eventMode === "visible") return row.event.title;
-  if (eventMode === "blind") return BLIND_TITLE;
-  if (eventMode === "invisible") return null;
+  if (eventMode === "visible") return "visible";
+  if (eventMode === "blind") return "blind";
+  if (eventMode === "invisible") return "invisible";
 
   const labelMode = row.label?.sharingMode as sharingMode | undefined;
 
   if (!labelMode || labelMode === "none" || labelMode === "visible") {
-    return row.event.title;
+    return "visible";
   }
-  if (labelMode === "blind") return BLIND_TITLE;
+  if (labelMode === "blind") return "blind";
+  return "invisible";
+}
+
+function resolveSharedTitle(row: LocalEventRow, visibility: ShareVisibility) {
+  if (visibility === "visible") return row.event.title;
+  if (visibility === "blind") return BLIND_TITLE;
   return null;
+}
+
+function getShareOverrideKey(eventId: string, occurrenceStartTime: number) {
+  return `${eventId}:${occurrenceStartTime}`;
 }
 
 function encodePayload(payload: SharedBundlePayload) {
@@ -234,6 +245,7 @@ export async function createSharedBundleLink(input: {
   rangeEnd: number;
   selectedLabelIds: string[];
   includeUnlabeled: boolean;
+  eventVisibilityOverrides: Record<string, ShareVisibility>;
   expiresAt: number | null;
 }) {
   const selectedLabels = new Set(input.selectedLabelIds);
@@ -272,9 +284,6 @@ export async function createSharedBundleLink(input: {
         return [];
       }
 
-      const title = resolveSharedTitle(row);
-      if (!title) return [];
-
       return expandEventOccurrences(
         row.event,
         new Date(input.rangeStart),
@@ -284,12 +293,25 @@ export async function createSharedBundleLink(input: {
           (event) =>
             event.startTime <= input.rangeEnd && event.endTime >= input.rangeStart,
         )
-        .map((event) => ({
-          title,
-          startTime: event.startTime,
-          endTime: event.endTime,
-          isAllDay: event.isAllDay,
-        }));
+        .flatMap((event) => {
+          const overrideKey = getShareOverrideKey(
+            event.originalEventId,
+            event.occurrenceStartTime,
+          );
+          const visibility =
+            input.eventVisibilityOverrides[overrideKey] ??
+            resolveShareVisibility(row);
+          const title = resolveSharedTitle(row, visibility);
+
+          if (!title) return [];
+
+          return {
+            title,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            isAllDay: event.isAllDay,
+          };
+        });
     })
     .sort((a, b) => a.startTime - b.startTime);
 
