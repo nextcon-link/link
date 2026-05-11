@@ -1,6 +1,6 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from "dayjs";
+import timezone from "dayjs/plugin/timezone";
+import utc from "dayjs/plugin/utc";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -12,24 +12,24 @@ export function toUtcMs(dateString: string, hour: number, minute: number): numbe
 
 // Convert a UTC Unix ms timestamp to a local 'YYYY-MM-DD' date string.
 export function toLocalDateString(utcMs: number): string {
-  return dayjs(utcMs).format('YYYY-MM-DD');
+  return dayjs(utcMs).format("YYYY-MM-DD");
 }
 
 // Get the start (00:00:00 local) and end (23:59:59 local) of a day as UTC ms.
 export function dayBounds(dateString: string): { start: number; end: number } {
   const base = dayjs(dateString);
   return {
-    start: base.startOf('day').valueOf(),
-    end: base.endOf('day').valueOf(),
+    start: base.startOf("day").valueOf(),
+    end: base.endOf("day").valueOf(),
   };
 }
 
 // Get the Sunday-to-Saturday week bounds for a given date.
 export function weekBounds(dateString: string): { start: Date; end: Date } {
   const base = dayjs(dateString);
-  const startOffset = base.day(); // 0 = Sunday
-  const start = base.subtract(startOffset, 'day').startOf('day');
-  const end = start.add(6, 'day').endOf('day');
+  const startOffset = base.day();
+  const start = base.subtract(startOffset, "day").startOf("day");
+  const end = start.add(6, "day").endOf("day");
   return { start: start.toDate(), end: end.toDate() };
 }
 
@@ -37,17 +37,16 @@ export function weekBounds(dateString: string): { start: Date; end: Date } {
 export function monthBounds(dateString: string): { start: Date; end: Date } {
   const base = dayjs(dateString);
   return {
-    start: base.startOf('month').toDate(),
-    end: base.endOf('month').toDate(),
+    start: base.startOf("month").toDate(),
+    end: base.endOf("month").toDate(),
   };
 }
 
 // Format a Unix ms timestamp for display (e.g., "14:30").
 export function formatTime(utcMs: number): string {
-  return dayjs(utcMs).format('HH:mm');
+  return dayjs(utcMs).format("HH:mm");
 }
 
-// Format a Unix ms timestamp as a Korean date string (e.g., "2026년 5월 5일").
 export function formatKoreanDate(utcMs: number): string {
   const d = dayjs(utcMs);
   return `${d.year()}년 ${d.month() + 1}월 ${d.date()}일`;
@@ -59,5 +58,5 @@ export function toIsoUtc(localDayjs: dayjs.Dayjs): string {
 }
 
 function pad(n: number): string {
-  return String(n).padStart(2, '0');
+  return String(n).padStart(2, "0");
 }

@@ -21,7 +21,7 @@ export default function AddScreen() {
         endMinute: 0,
         labelId: null,
         recurrenceRule: null,
-        sharingMode: 'visible'
+        sharingMode: "none"
       }}
       onSubmit={async (input) => {
         const ok = await createEvent(input);

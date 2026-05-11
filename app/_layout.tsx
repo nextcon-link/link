@@ -2,10 +2,12 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, AppState, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, View } from 'react-native';
+import * as Linking from 'expo-linking';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { importSharedBundleFromUrl } from '@/services/sharedBundleService';
 import { pollRemoteChanges, syncAll } from '@/services/syncEngine';
 import { useAuthStore } from '@/store/auth';
 
@@ -49,6 +51,34 @@ export default function RootLayout() {
       syncAll();
     }
   }, [session]);
+
+  useEffect(() => {
+    if (!isInitialized || !session?.user?.id) return;
+
+    const handleUrl = async (url: string) => {
+      const parsed = Linking.parse(url);
+      const target = parsed.path ?? parsed.hostname;
+      if (target !== 'shared-bundle') return;
+
+      const imported = await importSharedBundleFromUrl(url, session.user.id);
+      if (imported) {
+        Alert.alert('일정 덩어리 추가 완료', '공유 페이지의 일정 추가 목록에 저장했어요.');
+        router.replace('/shared');
+      } else {
+        Alert.alert('추가 실패', '공유 QR 데이터를 읽을 수 없어요.');
+      }
+    };
+
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl(url);
+    });
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleUrl(url);
+    });
+
+    return () => subscription.remove();
+  }, [isInitialized, router, session]);
 
   useEffect(() => {
     if (!session) return;

@@ -22,6 +22,7 @@ const MINUTES = [0, 10, 20, 30, 40, 50];
 
 type VisibilityOption = { label: string, visibility: sharingMode }
 const VISIBILITY_LEVEL: VisibilityOption[] = [
+  {label:"없음",visibility:"none"},
   {label:"공개",visibility:"visible"},
   {label:"비공개",visibility:"invisible"},
   {label:"부분 공개",visibility:"blind"},

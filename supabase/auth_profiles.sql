@@ -20,6 +20,7 @@ create table if not exists public.labels (
   google_access_role text,
   google_sync_enabled boolean not null default false,
   google_is_readonly boolean not null default false,
+  sharing_mode text not null default 'none' check (sharing_mode in ('none', 'visible', 'invisible', 'blind')),
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
   unique (id, user_id)
@@ -41,6 +42,7 @@ create table if not exists public.events (
   google_etag text,
   google_updated_at timestamptz,
   device_event_id text,
+  sharing_mode text not null default 'none' check (sharing_mode in ('none', 'visible', 'invisible', 'blind')),
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
   foreign key (label_id, user_id)
@@ -52,11 +54,32 @@ alter table public.labels add column if not exists google_calendar_id text;
 alter table public.labels add column if not exists google_access_role text;
 alter table public.labels add column if not exists google_sync_enabled boolean not null default false;
 alter table public.labels add column if not exists google_is_readonly boolean not null default false;
+alter table public.labels add column if not exists sharing_mode text not null default 'none';
 alter table public.labels add column if not exists deleted_at timestamptz;
 alter table public.events add column if not exists google_calendar_id text;
 alter table public.events add column if not exists google_etag text;
 alter table public.events add column if not exists google_updated_at timestamptz;
+alter table public.events add column if not exists sharing_mode text not null default 'none';
 alter table public.events add column if not exists deleted_at timestamptz;
+
+do $$
+begin
+  alter table public.labels
+    alter column sharing_mode set default 'none';
+  alter table public.labels
+    drop constraint if exists labels_sharing_mode_check;
+  alter table public.labels
+    add constraint labels_sharing_mode_check
+    check (sharing_mode in ('none', 'visible', 'invisible', 'blind'));
+
+  alter table public.events
+    alter column sharing_mode set default 'none';
+  alter table public.events
+    drop constraint if exists events_sharing_mode_check;
+  alter table public.events
+    add constraint events_sharing_mode_check
+    check (sharing_mode in ('none', 'visible', 'invisible', 'blind'));
+end $$;
 
 create table if not exists public.google_connections (
   user_id uuid primary key references auth.users(id) on delete cascade,
