@@ -288,6 +288,7 @@ export default function SharedBundleViewer({
           weekKey={weekKey}
           events={calendarEvents}
           emptyText={emptyText}
+          showOverlapHatching
           onPreviousWeek={onPreviousWeek}
           onNextWeek={onNextWeek}
         />
