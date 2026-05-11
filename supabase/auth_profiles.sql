@@ -415,6 +415,78 @@ begin
 end;
 $$ language plpgsql security definer set search_path = public;
 
+create or replace function public.get_friend_shared_events(
+  p_friend_id uuid,
+  p_range_start timestamptz,
+  p_range_end timestamptz
+)
+returns table (
+  id text,
+  title text,
+  start_time timestamptz,
+  end_time timestamptz,
+  is_all_day boolean,
+  recurrence_rule text,
+  color text
+) as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+
+  if not exists (
+    select 1
+    from public.friendships f
+    where f.user_low_id = least(auth.uid(), p_friend_id)
+      and f.user_high_id = greatest(auth.uid(), p_friend_id)
+  ) then
+    return;
+  end if;
+
+  return query
+  with visible_events as (
+    select
+      e.id,
+      case
+        when e.sharing_mode = 'visible' then e.title
+        when e.sharing_mode = 'blind' then '블라인드'
+        when e.sharing_mode = 'invisible' then null
+        when coalesce(l.sharing_mode, 'none') = 'blind' then '블라인드'
+        when coalesce(l.sharing_mode, 'none') = 'invisible' then null
+        else e.title
+      end as resolved_title,
+      e.start_time,
+      e.end_time,
+      e.is_all_day,
+      e.recurrence_rule,
+      coalesce(l.color, '#6C8AE4') as color
+    from public.events e
+    left join public.labels l
+      on l.id = e.label_id
+     and l.user_id = e.user_id
+     and l.deleted_at is null
+    where e.user_id = p_friend_id::text
+      and e.deleted_at is null
+      and (
+        (e.start_time <= p_range_end and e.end_time >= p_range_start)
+        or (e.recurrence_rule is not null and e.start_time <= p_range_end)
+      )
+  )
+  select
+    visible_events.id,
+    visible_events.resolved_title,
+    visible_events.start_time,
+    visible_events.end_time,
+    visible_events.is_all_day,
+    visible_events.recurrence_rule,
+    visible_events.color
+  from visible_events
+  where visible_events.resolved_title is not null
+  order by visible_events.start_time;
+end;
+$$ language plpgsql security definer set search_path = public;
+
 grant execute on function public.get_friends() to authenticated;
 grant execute on function public.add_friend_by_username(text) to authenticated;
 grant execute on function public.remove_friend(uuid) to authenticated;
+grant execute on function public.get_friend_shared_events(uuid, timestamptz, timestamptz) to authenticated;
