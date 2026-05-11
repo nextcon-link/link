@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
@@ -90,6 +91,7 @@ type Props = {
   onPreviousWeek?: () => void;
   onNextWeek?: () => void;
   onToday?: () => void;
+  onOpenCalendar?: () => void;
 };
 
 type DatePickerTarget = "start" | "end" | null;
@@ -175,6 +177,7 @@ export default function SharedBundleViewer({
   onPreviousWeek,
   onNextWeek,
   onToday,
+  onOpenCalendar,
 }: Props) {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(
     defaultSelectedSourceIds,
@@ -261,9 +264,20 @@ export default function SharedBundleViewer({
         <Pressable style={styles.weekButton} onPress={onPreviousWeek}>
           <Text style={styles.weekButtonText}>이전</Text>
         </Pressable>
-        <Pressable style={styles.todayButton} onPress={onToday}>
-          <Text style={styles.todayButtonText}>오늘</Text>
-        </Pressable>
+        <View style={styles.weekCenterActions}>
+          {onOpenCalendar && (
+            <Pressable
+              accessibilityLabel="달력 열기"
+              style={styles.calendarButton}
+              onPress={onOpenCalendar}
+            >
+              <MaterialCommunityIcons name="calendar-month" size={22} color="#111" />
+            </Pressable>
+          )}
+          <Pressable style={styles.todayButton} onPress={onToday}>
+            <Text style={styles.todayButtonText}>오늘</Text>
+          </Pressable>
+        </View>
         <Pressable style={styles.weekButton} onPress={onNextWeek}>
           <Text style={styles.weekButtonText}>다음</Text>
         </Pressable>
@@ -274,6 +288,8 @@ export default function SharedBundleViewer({
           weekKey={weekKey}
           events={calendarEvents}
           emptyText={emptyText}
+          onPreviousWeek={onPreviousWeek}
+          onNextWeek={onNextWeek}
         />
       </View>
 
@@ -751,6 +767,19 @@ const styles = StyleSheet.create({
     color: "#222",
     fontSize: 13,
     fontWeight: "700",
+  },
+  weekCenterActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  calendarButton: {
+    width: 36,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 17,
+    backgroundColor: "#F2F2F2",
   },
   todayButton: {
     minWidth: 58,

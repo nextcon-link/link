@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import {
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -50,6 +51,8 @@ type Props = {
   events: WeekCalendarEvent[];
   emptyText?: string;
   onEventPress?: (event: WeekCalendarEvent) => void;
+  onPreviousWeek?: () => void;
+  onNextWeek?: () => void;
   minDayWidth?: number;
   hourHeight?: number;
   contentPaddingHorizontal?: number;
@@ -166,6 +169,8 @@ export default function WeekCalendarView({
   events,
   emptyText,
   onEventPress,
+  onPreviousWeek,
+  onNextWeek,
   minDayWidth,
   hourHeight = HOUR_HEIGHT,
   contentPaddingHorizontal = HORIZONTAL_PADDING,
@@ -174,6 +179,29 @@ export default function WeekCalendarView({
 }: Props) {
   const { width } = useWindowDimensions();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
+  const previousWeekRef = useRef(onPreviousWeek);
+  const nextWeekRef = useRef(onNextWeek);
+  previousWeekRef.current = onPreviousWeek;
+  nextWeekRef.current = onNextWeek;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+
+        return absDx > 24 && absDx > absDy * 1.25;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (Math.abs(gestureState.dx) < 60) return;
+
+        if (gestureState.dx > 0) {
+          previousWeekRef.current?.();
+        } else {
+          nextWeekRef.current?.();
+        }
+      },
+    }),
+  ).current;
   const availableWidth = width - contentPaddingHorizontal * 2;
   const naturalDayWidth = (availableWidth - TIME_COLUMN_WIDTH) / 7;
   const dayWidth = horizontalScrollEnabled
@@ -402,6 +430,10 @@ export default function WeekCalendarView({
       </ScrollView>
     </View>
   );
+  const panHandlers =
+    !horizontalScrollEnabled && (onPreviousWeek || onNextWeek)
+      ? panResponder.panHandlers
+      : {};
 
   return (
     <View
@@ -409,6 +441,7 @@ export default function WeekCalendarView({
         styles.container,
         { paddingHorizontal: contentPaddingHorizontal },
       ]}
+      {...panHandlers}
     >
       {horizontalScrollEnabled ? (
         <ScrollView
