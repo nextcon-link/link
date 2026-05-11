@@ -40,6 +40,10 @@ export type WeekCalendarEvent = {
   editable?: boolean;
   editEventId?: string;
   layoutGroupId?: string;
+  shareOverrideKey?: string;
+  shareVisibility?: "visible" | "blind" | "invisible";
+  shareDefaultVisibility?: "visible" | "blind" | "invisible";
+  originalTitle?: string;
 };
 
 type Props = {
@@ -49,6 +53,11 @@ type Props = {
   onEventPress?: (event: WeekCalendarEvent) => void;
   onPreviousWeek?: () => void;
   onNextWeek?: () => void;
+  minDayWidth?: number;
+  hourHeight?: number;
+  contentPaddingHorizontal?: number;
+  nestedScrollEnabled?: boolean;
+  horizontalScrollEnabled?: boolean;
 };
 
 type PositionedEvent = WeekCalendarEvent & {
@@ -162,6 +171,11 @@ export default function WeekCalendarView({
   onEventPress,
   onPreviousWeek,
   onNextWeek,
+  minDayWidth,
+  hourHeight = HOUR_HEIGHT,
+  contentPaddingHorizontal = HORIZONTAL_PADDING,
+  nestedScrollEnabled = false,
+  horizontalScrollEnabled = false,
 }: Props) {
   const { width } = useWindowDimensions();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
@@ -188,8 +202,12 @@ export default function WeekCalendarView({
       },
     }),
   ).current;
-  const dayWidth =
-    (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING * 2) / 7;
+  const availableWidth = width - contentPaddingHorizontal * 2;
+  const naturalDayWidth = (availableWidth - TIME_COLUMN_WIDTH) / 7;
+  const dayWidth = horizontalScrollEnabled
+    ? Math.max(naturalDayWidth, minDayWidth ?? naturalDayWidth)
+    : naturalDayWidth;
+  const contentWidth = TIME_COLUMN_WIDTH + dayWidth * 7;
   const allDayEventsByDay = useMemo(() => {
     const buckets = Array.from(
       { length: 7 },
@@ -271,8 +289,15 @@ export default function WeekCalendarView({
     );
   }, [events, weekDates]);
 
-  return (
-    <View style={styles.container} {...panResponder.panHandlers}>
+  const calendarContent = (
+    <View
+      style={[
+        styles.calendarContent,
+        horizontalScrollEnabled
+          ? { width: contentWidth }
+          : { width: "100%" },
+      ]}
+    >
       <View style={styles.headerRow}>
         <View style={{ width: TIME_COLUMN_WIDTH }} />
         {DAYS.map((day, i) => (
@@ -329,8 +354,11 @@ export default function WeekCalendarView({
         </View>
       )}
 
-      <ScrollView>
-        <View style={styles.grid}>
+      <ScrollView
+        nestedScrollEnabled={nestedScrollEnabled}
+        showsVerticalScrollIndicator={nestedScrollEnabled}
+      >
+        <View style={[styles.grid, { height: VISIBLE_HOURS * hourHeight }]}>
           {Array.from({ length: 8 }).map((_, i) => (
             <View
               key={`column-${i}`}
@@ -343,9 +371,9 @@ export default function WeekCalendarView({
 
           {Array.from({ length: VISIBLE_HOURS + 1 }).map((_, i) => (
             <React.Fragment key={i}>
-              <View style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
+              <View style={[styles.hourLine, { top: i * hourHeight }]} />
               {i < VISIBLE_HOURS && (
-                <Text style={[styles.hourText, { top: i * HOUR_HEIGHT + 4 }]}>
+                <Text style={[styles.hourText, { top: i * hourHeight + 4 }]}>
                   {formatHourLabel(START_HOUR + i)}
                 </Text>
               )}
@@ -376,9 +404,9 @@ export default function WeekCalendarView({
                   styles.eventBlock,
                   {
                     backgroundColor: getEventFill(event.color),
-                    top: (visibleStartHour - START_HOUR) * HOUR_HEIGHT + 8,
+                    top: (visibleStartHour - START_HOUR) * hourHeight + 8,
                     height: Math.max(
-                      (visibleEndHour - visibleStartHour) * HOUR_HEIGHT - 16,
+                      (visibleEndHour - visibleStartHour) * hourHeight - 16,
                       50,
                     ),
                     left:
@@ -402,6 +430,32 @@ export default function WeekCalendarView({
       </ScrollView>
     </View>
   );
+  const panHandlers =
+    !horizontalScrollEnabled && (onPreviousWeek || onNextWeek)
+      ? panResponder.panHandlers
+      : {};
+
+  return (
+    <View
+      style={[
+        styles.container,
+        { paddingHorizontal: contentPaddingHorizontal },
+      ]}
+      {...panHandlers}
+    >
+      {horizontalScrollEnabled ? (
+        <ScrollView
+          horizontal
+          nestedScrollEnabled={nestedScrollEnabled}
+          showsHorizontalScrollIndicator
+        >
+          {calendarContent}
+        </ScrollView>
+      ) : (
+        calendarContent
+      )}
+    </View>
+  );
 }
 
 function formatHourLabel(hour: number) {
@@ -419,7 +473,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: HORIZONTAL_PADDING,
+  },
+  calendarContent: {
+    flex: 1,
   },
   headerRow: {
     flexDirection: "row",
@@ -479,7 +535,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   grid: {
-    height: VISIBLE_HOURS * HOUR_HEIGHT,
     position: "relative",
   },
   hourLine: {
