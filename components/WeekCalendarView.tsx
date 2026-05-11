@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import {
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -46,6 +47,8 @@ type Props = {
   events: WeekCalendarEvent[];
   emptyText?: string;
   onEventPress?: (event: WeekCalendarEvent) => void;
+  onPreviousWeek?: () => void;
+  onNextWeek?: () => void;
 };
 
 type PositionedEvent = WeekCalendarEvent & {
@@ -157,9 +160,34 @@ export default function WeekCalendarView({
   events,
   emptyText,
   onEventPress,
+  onPreviousWeek,
+  onNextWeek,
 }: Props) {
   const { width } = useWindowDimensions();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
+  const previousWeekRef = useRef(onPreviousWeek);
+  const nextWeekRef = useRef(onNextWeek);
+  previousWeekRef.current = onPreviousWeek;
+  nextWeekRef.current = onNextWeek;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+
+        return absDx > 24 && absDx > absDy * 1.25;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (Math.abs(gestureState.dx) < 60) return;
+
+        if (gestureState.dx > 0) {
+          previousWeekRef.current?.();
+        } else {
+          nextWeekRef.current?.();
+        }
+      },
+    }),
+  ).current;
   const dayWidth =
     (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING * 2) / 7;
   const allDayEventsByDay = useMemo(() => {
@@ -244,7 +272,7 @@ export default function WeekCalendarView({
   }, [events, weekDates]);
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} {...panResponder.panHandlers}>
       <View style={styles.headerRow}>
         <View style={{ width: TIME_COLUMN_WIDTH }} />
         {DAYS.map((day, i) => (

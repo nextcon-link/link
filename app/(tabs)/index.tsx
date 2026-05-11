@@ -10,6 +10,7 @@ import WeekCalendarView, {
   type WeekCalendarEvent,
 } from "@/components/WeekCalendarView";
 import {
+  addWeeks,
   formatDate,
   getCurrentWeekKey,
   getWeekDates,
@@ -162,6 +163,13 @@ export default function HomeScreen() {
     router.replace("/login");
   };
 
+  const moveWeek = (amount: number) => {
+    router.replace({
+      pathname: "/",
+      params: { week: addWeeks(weekKey, amount) },
+    });
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
@@ -225,6 +233,8 @@ export default function HomeScreen() {
               params: { id: event.editEventId ?? event.id, week: weekKey },
             });
           }}
+          onPreviousWeek={() => moveWeek(-1)}
+          onNextWeek={() => moveWeek(1)}
         />
       </View>
 

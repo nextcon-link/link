@@ -192,6 +192,8 @@ export default function SharedBundleViewer({
           weekKey={weekKey}
           events={calendarEvents}
           emptyText={emptyText}
+          onPreviousWeek={onPreviousWeek}
+          onNextWeek={onNextWeek}
         />
       </View>
 
