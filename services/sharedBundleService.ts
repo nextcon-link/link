@@ -15,7 +15,8 @@ import { generateId } from "@/utils/uuid";
 
 const BLIND_TITLE = "블라인드";
 const DEFAULT_BUNDLE_COLOR = "#6C8AE4";
-const SHARE_PAYLOAD_VERSION = 1;
+const SHARE_PAYLOAD_VERSION = 2;
+type ShareVisibility = "visible" | "blind" | "invisible";
 
 export type SharedBundlePayloadEvent = {
   title: string;
@@ -31,6 +32,7 @@ type SharedBundlePayload = {
   ownerName: string;
   color: string;
   weekKey: string;
+  expiresAt: number | null;
   createdAt: number;
   events: SharedBundlePayloadEvent[];
 };
@@ -56,20 +58,30 @@ function getOwnerName(user: {
   return user.email?.split("@")[0] || "공유 사용자";
 }
 
-function resolveSharedTitle(row: LocalEventRow): string | null {
+function resolveShareVisibility(row: LocalEventRow): ShareVisibility {
   const eventMode = row.event.sharingMode as sharingMode;
 
-  if (eventMode === "visible") return row.event.title;
-  if (eventMode === "blind") return BLIND_TITLE;
-  if (eventMode === "invisible") return null;
+  if (eventMode === "visible") return "visible";
+  if (eventMode === "blind") return "blind";
+  if (eventMode === "invisible") return "invisible";
 
   const labelMode = row.label?.sharingMode as sharingMode | undefined;
 
   if (!labelMode || labelMode === "none" || labelMode === "visible") {
-    return row.event.title;
+    return "visible";
   }
-  if (labelMode === "blind") return BLIND_TITLE;
+  if (labelMode === "blind") return "blind";
+  return "invisible";
+}
+
+function resolveSharedTitle(row: LocalEventRow, visibility: ShareVisibility) {
+  if (visibility === "visible") return row.event.title;
+  if (visibility === "blind") return BLIND_TITLE;
   return null;
+}
+
+function getShareOverrideKey(eventId: string, occurrenceStartTime: number) {
+  return `${eventId}:${occurrenceStartTime}`;
 }
 
 function encodePayload(payload: SharedBundlePayload) {
@@ -81,6 +93,7 @@ function encodePayload(payload: SharedBundlePayload) {
       o: payload.ownerName,
       c: payload.color,
       w: payload.weekKey,
+      x: payload.expiresAt,
       d: payload.createdAt,
       e: payload.events.map((event) => [
         event.title,
@@ -104,9 +117,11 @@ function decodePayload(value: string | string[] | undefined) {
       o?: unknown;
       c?: unknown;
       w?: unknown;
+      x?: unknown;
       d?: unknown;
       e?: unknown;
     };
+    const version = typeof payload.v === "number" ? payload.v : null;
     const id = typeof payload.id === "string" ? payload.id : payload.i;
     const title = typeof payload.title === "string" ? payload.title : payload.t;
     const ownerName =
@@ -114,6 +129,12 @@ function decodePayload(value: string | string[] | undefined) {
     const color = typeof payload.color === "string" ? payload.color : payload.c;
     const weekKey =
       typeof payload.weekKey === "string" ? payload.weekKey : payload.w;
+    const expiresAt =
+      typeof payload.expiresAt === "number"
+        ? payload.expiresAt
+        : typeof payload.x === "number"
+          ? payload.x
+          : null;
     const createdAt =
       typeof payload.createdAt === "number" ? payload.createdAt : payload.d;
     const eventsValue = Array.isArray(payload.events)
@@ -121,7 +142,7 @@ function decodePayload(value: string | string[] | undefined) {
       : payload.e;
 
     if (
-      payload.v !== SHARE_PAYLOAD_VERSION ||
+      (version !== 1 && version !== SHARE_PAYLOAD_VERSION) ||
       typeof id !== "string" ||
       typeof title !== "string" ||
       typeof ownerName !== "string" ||
@@ -171,12 +192,13 @@ function decodePayload(value: string | string[] | undefined) {
     }
 
     return {
-      v: payload.v,
+      v: version,
       id,
       title,
       ownerName,
       color,
       weekKey,
+      expiresAt,
       createdAt,
       events: decodedEvents,
     } satisfies SharedBundlePayload;
@@ -218,9 +240,15 @@ export async function createSharedBundleLink(input: {
     user_metadata?: Record<string, unknown>;
   };
   weekKey: string;
-  weekStart: number;
-  weekEnd: number;
+  bundleTitle: string;
+  rangeStart: number;
+  rangeEnd: number;
+  selectedLabelIds: string[];
+  includeUnlabeled: boolean;
+  eventVisibilityOverrides: Record<string, ShareVisibility>;
+  expiresAt: number | null;
 }) {
+  const selectedLabels = new Set(input.selectedLabelIds);
   const rows = await db
     .select({
       event: events,
@@ -239,8 +267,8 @@ export async function createSharedBundleLink(input: {
       and(
         eq(events.userId, input.userId),
         or(
-          and(gte(events.startTime, input.weekStart), lte(events.startTime, input.weekEnd)),
-          and(isNotNull(events.recurrenceRule), lte(events.startTime, input.weekEnd)),
+          and(lte(events.startTime, input.rangeEnd), gte(events.endTime, input.rangeStart)),
+          and(isNotNull(events.recurrenceRule), lte(events.startTime, input.rangeEnd)),
         ),
         isNull(events.deletedAt),
         ne(events.syncStatus, "pending_delete"),
@@ -250,29 +278,51 @@ export async function createSharedBundleLink(input: {
   const ownerName = getOwnerName(input.user);
   const payloadEvents = rows
     .flatMap((row) => {
-      const title = resolveSharedTitle(row);
-      if (!title) return [];
+      if (row.event.labelId) {
+        if (!selectedLabels.has(row.event.labelId)) return [];
+      } else if (!input.includeUnlabeled) {
+        return [];
+      }
 
       return expandEventOccurrences(
         row.event,
-        new Date(input.weekStart),
-        new Date(input.weekEnd),
-      ).map((event) => ({
-        title,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        isAllDay: event.isAllDay,
-      }));
+        new Date(input.rangeStart),
+        new Date(input.rangeEnd),
+      )
+        .filter(
+          (event) =>
+            event.startTime <= input.rangeEnd && event.endTime >= input.rangeStart,
+        )
+        .flatMap((event) => {
+          const overrideKey = getShareOverrideKey(
+            event.originalEventId,
+            event.occurrenceStartTime,
+          );
+          const visibility =
+            input.eventVisibilityOverrides[overrideKey] ??
+            resolveShareVisibility(row);
+          const title = resolveSharedTitle(row, visibility);
+
+          if (!title) return [];
+
+          return {
+            title,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            isAllDay: event.isAllDay,
+          };
+        });
     })
     .sort((a, b) => a.startTime - b.startTime);
 
   const payload: SharedBundlePayload = {
     v: SHARE_PAYLOAD_VERSION,
     id: generateId(),
-    title: `${ownerName}의 ${input.weekKey} 일정`,
+    title: input.bundleTitle.trim(),
     ownerName,
     color: DEFAULT_BUNDLE_COLOR,
     weekKey: input.weekKey,
+    expiresAt: input.expiresAt,
     createdAt: Date.now(),
     events: payloadEvents,
   };
@@ -285,6 +335,7 @@ export async function createSharedBundleLink(input: {
     qrMatrix: createQrMatrix(url),
     events: payloadEvents,
     eventCount: payloadEvents.length,
+    expiresAt: input.expiresAt,
     title: payload.title,
   };
 }
@@ -309,7 +360,7 @@ export async function importSharedBundleFromUrl(url: string, userId: string) {
     title: payload.title,
     ownerName: payload.ownerName,
     color: payload.color,
-    expiresAt: null,
+    expiresAt: payload.expiresAt,
     isDemo: false,
     createdAt: now,
   });
@@ -328,6 +379,21 @@ export async function importSharedBundleFromUrl(url: string, userId: string) {
   }
 
   return true;
+}
+
+export async function cleanupExpiredSharedBundles(userId: string) {
+  if (!userId) return;
+
+  await db
+    .delete(sharedBundles)
+    .where(
+      and(
+        eq(sharedBundles.userId, userId),
+        eq(sharedBundles.isDemo, false),
+        isNotNull(sharedBundles.expiresAt),
+        lte(sharedBundles.expiresAt, Date.now()),
+      ),
+    );
 }
 
 export async function deleteSharedBundle(bundleId: string, userId: string) {

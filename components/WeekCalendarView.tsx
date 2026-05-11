@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import {
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,6 +27,7 @@ const ALL_DAY_EVENT_GAP = 3;
 const ALL_DAY_ROW_PADDING_VERTICAL = 4;
 const MAX_VISIBLE_ALL_DAY_EVENTS = 3;
 const DEFAULT_LAYOUT_GROUP_ID = "default";
+const HATCH_STRIPE_GAP = 10;
 
 export type WeekCalendarEvent = {
   id: string;
@@ -39,6 +41,10 @@ export type WeekCalendarEvent = {
   editable?: boolean;
   editEventId?: string;
   layoutGroupId?: string;
+  shareOverrideKey?: string;
+  shareVisibility?: "visible" | "blind" | "invisible";
+  shareDefaultVisibility?: "visible" | "blind" | "invisible";
+  originalTitle?: string;
 };
 
 type Props = {
@@ -46,6 +52,14 @@ type Props = {
   events: WeekCalendarEvent[];
   emptyText?: string;
   onEventPress?: (event: WeekCalendarEvent) => void;
+  onPreviousWeek?: () => void;
+  onNextWeek?: () => void;
+  minDayWidth?: number;
+  hourHeight?: number;
+  contentPaddingHorizontal?: number;
+  nestedScrollEnabled?: boolean;
+  horizontalScrollEnabled?: boolean;
+  showOverlapHatching?: boolean;
 };
 
 type PositionedEvent = WeekCalendarEvent & {
@@ -60,6 +74,19 @@ type LanePosition = {
   event: WeekCalendarEvent;
   laneIndex: number;
   laneCount: number;
+};
+
+type OverlapSegment = {
+  id: string;
+  eventDateIndex: number;
+  startHour: number;
+  endHour: number;
+};
+
+type OverlapCandidate = {
+  startTime: number;
+  endTime: number;
+  groupId: string;
 };
 
 function isUtcMidnight(timestamp: number): boolean {
@@ -152,16 +179,178 @@ function positionEventsInGroup(
   return positioned;
 }
 
+function getEventGroupId(event: WeekCalendarEvent) {
+  return event.layoutGroupId ?? event.source ?? DEFAULT_LAYOUT_GROUP_ID;
+}
+
+function getHourOffset(timestamp: number, dayStart: number) {
+  return (timestamp - dayStart) / (60 * 60 * 1000);
+}
+
+function getOverlapSegments(
+  events: WeekCalendarEvent[],
+  weekDates: Date[],
+): OverlapSegment[] {
+  const segments: OverlapSegment[] = [];
+
+  weekDates.forEach((date, eventDateIndex) => {
+    const dayStart = dayjs(date).startOf("day").valueOf();
+    const dayEnd = dayjs(date).add(1, "day").startOf("day").valueOf();
+    const candidates: OverlapCandidate[] = events.flatMap((event) => {
+      if (event.isAllDay) return [];
+
+      const groupId = getEventGroupId(event);
+      const startTime = Math.max(event.startTime, dayStart);
+      const endTime = Math.min(event.endTime, dayEnd);
+
+      if (endTime <= startTime) return [];
+
+      return [{ startTime, endTime, groupId }];
+    });
+
+    const boundaries = Array.from(
+      new Set(candidates.flatMap((item) => [item.startTime, item.endTime])),
+    ).sort((a, b) => a - b);
+
+    let currentSegment: OverlapSegment | null = null;
+
+    for (let i = 0; i < boundaries.length - 1; i += 1) {
+      const startTime = boundaries[i];
+      const endTime = boundaries[i + 1];
+      const activeGroups = new Set(
+        candidates
+          .filter((item) => item.startTime < endTime && item.endTime > startTime)
+          .map((item) => item.groupId),
+      );
+      const isOverlapping = activeGroups.size > 1;
+
+      if (!isOverlapping) {
+        if (currentSegment) {
+          segments.push(currentSegment);
+          currentSegment = null;
+        }
+        continue;
+      }
+
+      const startHour = getHourOffset(startTime, dayStart);
+      const endHour = getHourOffset(endTime, dayStart);
+
+      if (currentSegment && currentSegment.endHour === startHour) {
+        currentSegment.endHour = endHour;
+      } else {
+        currentSegment = {
+          id: `overlap-${eventDateIndex}-${startTime}`,
+          eventDateIndex,
+          startHour,
+          endHour,
+        };
+      }
+    }
+
+    if (currentSegment) {
+      segments.push(currentSegment);
+    }
+  });
+
+  return segments;
+}
+
+function OverlapHatch({
+  segment,
+  dayWidth,
+  hourHeight,
+}: {
+  segment: OverlapSegment;
+  dayWidth: number;
+  hourHeight: number;
+}) {
+  const top = (Math.max(segment.startHour, START_HOUR) - START_HOUR) * hourHeight;
+  const height =
+    (Math.min(segment.endHour, END_HOUR) -
+      Math.max(segment.startHour, START_HOUR)) *
+    hourHeight;
+
+  if (height <= 0) return null;
+
+  const lineLength = Math.max(dayWidth, height) * 1.8;
+  const stripeCount =
+    Math.ceil((dayWidth + height) / HATCH_STRIPE_GAP) + 6;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.overlapHatch,
+        {
+          top,
+          height,
+          left: TIME_COLUMN_WIDTH + segment.eventDateIndex * dayWidth + 1,
+          width: Math.max(dayWidth - 2, 1),
+        },
+      ]}
+    >
+      {Array.from({ length: stripeCount }).map((_, index) => (
+        <View
+          key={index}
+          style={[
+            styles.overlapStripe,
+            {
+              height: lineLength,
+              left: index * HATCH_STRIPE_GAP - height * 0.7,
+              top: -lineLength * 0.28,
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 export default function WeekCalendarView({
   weekKey,
   events,
   emptyText,
   onEventPress,
+  onPreviousWeek,
+  onNextWeek,
+  minDayWidth,
+  hourHeight = HOUR_HEIGHT,
+  contentPaddingHorizontal = HORIZONTAL_PADDING,
+  nestedScrollEnabled = false,
+  horizontalScrollEnabled = false,
+  showOverlapHatching = false,
 }: Props) {
   const { width } = useWindowDimensions();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
-  const dayWidth =
-    (width - TIME_COLUMN_WIDTH - HORIZONTAL_PADDING * 2) / 7;
+  const previousWeekRef = useRef(onPreviousWeek);
+  const nextWeekRef = useRef(onNextWeek);
+  previousWeekRef.current = onPreviousWeek;
+  nextWeekRef.current = onNextWeek;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+
+        return absDx > 24 && absDx > absDy * 1.25;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (Math.abs(gestureState.dx) < 60) return;
+
+        if (gestureState.dx > 0) {
+          previousWeekRef.current?.();
+        } else {
+          nextWeekRef.current?.();
+        }
+      },
+    }),
+  ).current;
+  const availableWidth = width - contentPaddingHorizontal * 2;
+  const naturalDayWidth = (availableWidth - TIME_COLUMN_WIDTH) / 7;
+  const dayWidth = horizontalScrollEnabled
+    ? Math.max(naturalDayWidth, minDayWidth ?? naturalDayWidth)
+    : naturalDayWidth;
+  const contentWidth = TIME_COLUMN_WIDTH + dayWidth * 7;
   const allDayEventsByDay = useMemo(() => {
     const buckets = Array.from(
       { length: 7 },
@@ -242,9 +431,20 @@ export default function WeekCalendarView({
       }),
     );
   }, [events, weekDates]);
+  const overlapSegments = useMemo(
+    () => (showOverlapHatching ? getOverlapSegments(events, weekDates) : []),
+    [events, showOverlapHatching, weekDates],
+  );
 
-  return (
-    <View style={styles.container}>
+  const calendarContent = (
+    <View
+      style={[
+        styles.calendarContent,
+        horizontalScrollEnabled
+          ? { width: contentWidth }
+          : { width: "100%" },
+      ]}
+    >
       <View style={styles.headerRow}>
         <View style={{ width: TIME_COLUMN_WIDTH }} />
         {DAYS.map((day, i) => (
@@ -301,8 +501,11 @@ export default function WeekCalendarView({
         </View>
       )}
 
-      <ScrollView>
-        <View style={styles.grid}>
+      <ScrollView
+        nestedScrollEnabled={nestedScrollEnabled}
+        showsVerticalScrollIndicator={nestedScrollEnabled}
+      >
+        <View style={[styles.grid, { height: VISIBLE_HOURS * hourHeight }]}>
           {Array.from({ length: 8 }).map((_, i) => (
             <View
               key={`column-${i}`}
@@ -315,9 +518,9 @@ export default function WeekCalendarView({
 
           {Array.from({ length: VISIBLE_HOURS + 1 }).map((_, i) => (
             <React.Fragment key={i}>
-              <View style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />
+              <View style={[styles.hourLine, { top: i * hourHeight }]} />
               {i < VISIBLE_HOURS && (
-                <Text style={[styles.hourText, { top: i * HOUR_HEIGHT + 4 }]}>
+                <Text style={[styles.hourText, { top: i * hourHeight + 4 }]}>
                   {formatHourLabel(START_HOUR + i)}
                 </Text>
               )}
@@ -329,6 +532,15 @@ export default function WeekCalendarView({
               <Text style={styles.emptyText}>{emptyText}</Text>
             </View>
           )}
+
+          {overlapSegments.map((segment) => (
+            <OverlapHatch
+              key={segment.id}
+              segment={segment}
+              dayWidth={dayWidth}
+              hourHeight={hourHeight}
+            />
+          ))}
 
           {positionedEvents.map((event) => {
             const laneWidth = dayWidth / event.laneCount;
@@ -348,9 +560,9 @@ export default function WeekCalendarView({
                   styles.eventBlock,
                   {
                     backgroundColor: getEventFill(event.color),
-                    top: (visibleStartHour - START_HOUR) * HOUR_HEIGHT + 8,
+                    top: (visibleStartHour - START_HOUR) * hourHeight + 8,
                     height: Math.max(
-                      (visibleEndHour - visibleStartHour) * HOUR_HEIGHT - 16,
+                      (visibleEndHour - visibleStartHour) * hourHeight - 16,
                       50,
                     ),
                     left:
@@ -374,6 +586,32 @@ export default function WeekCalendarView({
       </ScrollView>
     </View>
   );
+  const panHandlers =
+    !horizontalScrollEnabled && (onPreviousWeek || onNextWeek)
+      ? panResponder.panHandlers
+      : {};
+
+  return (
+    <View
+      style={[
+        styles.container,
+        { paddingHorizontal: contentPaddingHorizontal },
+      ]}
+      {...panHandlers}
+    >
+      {horizontalScrollEnabled ? (
+        <ScrollView
+          horizontal
+          nestedScrollEnabled={nestedScrollEnabled}
+          showsHorizontalScrollIndicator
+        >
+          {calendarContent}
+        </ScrollView>
+      ) : (
+        calendarContent
+      )}
+    </View>
+  );
 }
 
 function formatHourLabel(hour: number) {
@@ -391,7 +629,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: HORIZONTAL_PADDING,
+  },
+  calendarContent: {
+    flex: 1,
   },
   headerRow: {
     flexDirection: "row",
@@ -451,7 +691,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   grid: {
-    height: VISIBLE_HOURS * HOUR_HEIGHT,
     position: "relative",
   },
   hourLine: {
@@ -487,6 +726,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 5,
     elevation: 4,
+  },
+  overlapHatch: {
+    position: "absolute",
+    overflow: "hidden",
+    backgroundColor: "rgba(17, 17, 17, 0.035)",
+  },
+  overlapStripe: {
+    position: "absolute",
+    width: 2,
+    borderRadius: 1,
+    backgroundColor: "rgba(17, 17, 17, 0.16)",
+    transform: [{ rotate: "45deg" }],
   },
   eventTitle: {
     color: "#FFF",

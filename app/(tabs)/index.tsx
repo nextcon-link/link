@@ -10,6 +10,7 @@ import WeekCalendarView, {
   type WeekCalendarEvent,
 } from "@/components/WeekCalendarView";
 import {
+  addWeeks,
   formatDate,
   getCurrentWeekKey,
   getWeekDates,
@@ -18,6 +19,7 @@ import {
 import { db } from "@/database";
 import { events, labels } from "@/database/schema";
 import { getMergedEvents, type MergedEvent, type EventWithLabel } from "@/services/deviceSync";
+import { allowCalendarEntry } from "@/store/calendarAccess";
 import { useAuthStore } from "@/store/auth";
 
 const MAIN_CALENDAR_LAYOUT_GROUP_ID = "main-calendar";
@@ -162,12 +164,25 @@ export default function HomeScreen() {
     router.replace("/login");
   };
 
+  const moveWeek = (amount: number) => {
+    router.replace({
+      pathname: "/",
+      params: { week: addWeeks(weekKey, amount) },
+    });
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
         <Pressable
           style={styles.dateButton}
-          onPress={() => router.push("/calendar")}
+          onPress={() => {
+            allowCalendarEntry("home");
+            router.push({
+              pathname: "/calendar",
+              params: { source: "home", week: weekKey },
+            });
+          }}
         >
           <Text style={styles.dateButtonText}>{selectedDateLabel}</Text>
         </Pressable>
@@ -225,6 +240,8 @@ export default function HomeScreen() {
               params: { id: event.editEventId ?? event.id, week: weekKey },
             });
           }}
+          onPreviousWeek={() => moveWeek(-1)}
+          onNextWeek={() => moveWeek(1)}
         />
       </View>
 
