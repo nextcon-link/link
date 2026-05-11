@@ -1,25 +1,51 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useEffect } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { StyleSheet, Text, View } from "react-native";
 import { Calendar } from "react-native-calendars";
-import { router } from "expo-router";
 
-import { getWeekKey } from "../../utils/date";
+import {
+  clearCalendarEntry,
+  getCalendarEntrySource,
+  type CalendarEntrySource,
+} from "@/store/calendarAccess";
+import { getWeekKey } from "@/utils/date";
 
 export default function CalendarScreen() {
+  const { source, week } = useLocalSearchParams<{
+    source?: CalendarEntrySource;
+    week?: string;
+  }>();
+  const entrySource =
+    source === "home" || source === "shared" ? source : null;
+  const canAccessCalendar =
+    entrySource !== null && getCalendarEntrySource() === entrySource;
+
+  useEffect(() => {
+    if (canAccessCalendar) return;
+
+    router.replace(entrySource === "shared" ? "/shared" : "/");
+  }, [canAccessCalendar, entrySource]);
+
+  if (!canAccessCalendar) {
+    return null;
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>주 선택</Text>
 
       <Calendar
-        monthFormat={"yyyy년 MM월"}
+        current={week}
+        monthFormat="yyyy년 MM월"
         hideArrows={false}
         enableSwipeMonths={true}
         onDayPress={(day) => {
-          const week = getWeekKey(day.dateString);
+          const selectedWeek = getWeekKey(day.dateString);
 
-          router.push({
-            pathname: "/",
-            params: { week, date: day.dateString },
+          clearCalendarEntry();
+          router.replace({
+            pathname: entrySource === "shared" ? "/shared" : "/",
+            params: { week: selectedWeek, date: day.dateString },
           });
         }}
         theme={{
@@ -43,11 +69,10 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingHorizontal: 16,
   },
-
   title: {
+    color: "#111111",
     fontSize: 26,
     fontWeight: "bold",
-    color: "#111111",
     marginBottom: 16,
   },
 });

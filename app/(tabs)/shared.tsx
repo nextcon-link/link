@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import dayjs from "dayjs";
@@ -23,6 +24,7 @@ import {
   updateSharedBundleColor,
 } from "@/services/sharedBundleService";
 import { expandEventOccurrences } from "@/services/recurrence";
+import { allowCalendarEntry } from "@/store/calendarAccess";
 import { useAuthStore } from "@/store/auth";
 import { addWeeks, getCurrentWeekKey, getWeekDates } from "@/utils/date";
 
@@ -32,6 +34,7 @@ const MY_CALENDAR_COLOR = "#9FF4E2";
 export default function SharedScreen() {
   const user = useAuthStore((state) => state.user);
   const userId = user?.id ?? "";
+  const { week } = useLocalSearchParams();
   const [weekKey, setWeekKey] = useState(getCurrentWeekKey());
   const [qr, setQr] = useState<GeneratedShareQr | null>(null);
   const [isCreatingQr, setIsCreatingQr] = useState(false);
@@ -42,6 +45,12 @@ export default function SharedScreen() {
   useEffect(() => {
     seedDemoSharedBundles();
   }, []);
+
+  useEffect(() => {
+    if (typeof week === "string") {
+      setWeekKey(week);
+    }
+  }, [week]);
 
   const { data: bundleList = [] } = useLiveQuery(
     db
@@ -205,6 +214,13 @@ export default function SharedScreen() {
       onPreviousWeek={() => setWeekKey((current) => addWeeks(current, -1))}
       onNextWeek={() => setWeekKey((current) => addWeeks(current, 1))}
       onToday={() => setWeekKey(getCurrentWeekKey())}
+      onOpenCalendar={() => {
+        allowCalendarEntry("shared");
+        router.push({
+          pathname: "/calendar",
+          params: { source: "shared", week: weekKey },
+        });
+      }}
     />
   );
 }

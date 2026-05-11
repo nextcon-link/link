@@ -27,6 +27,7 @@ export default function TabLayout() {
         name="calendar"
         options={{
           title: '달력',
+          href: null,
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
         }}
       />

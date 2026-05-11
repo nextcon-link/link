@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
 
 import SharedBundleViewer, {
   type SharedBundleSource,
 } from "@/components/SharedBundleViewer";
 import type { WeekCalendarEvent } from "@/components/WeekCalendarView";
+import { allowCalendarEntry } from "@/store/calendarAccess";
 import { addWeeks, formatDate, getCurrentWeekKey, getWeekDates } from "@/utils/date";
 import { toUtcMs } from "@/utils/datetime";
 
@@ -57,8 +59,17 @@ const WEB_SHARED_BUNDLES: WebSharedBundle[] = [
 const WEB_DEMO_WEEK_KEY = "2026-05-10";
 
 export default function WebSharedScreen() {
-  const [weekKey, setWeekKey] = useState(getCurrentWeekKey());
+  const { week } = useLocalSearchParams();
+  const [weekKey, setWeekKey] = useState(
+    typeof week === "string" ? week : getCurrentWeekKey(),
+  );
   const demoWeekDates = useMemo(() => getWeekDates(WEB_DEMO_WEEK_KEY), []);
+
+  useEffect(() => {
+    if (typeof week === "string") {
+      setWeekKey(week);
+    }
+  }, [week]);
 
   const sources = useMemo<SharedBundleSource[]>(
     () =>
@@ -102,6 +113,13 @@ export default function WebSharedScreen() {
       onPreviousWeek={() => setWeekKey((current) => addWeeks(current, -1))}
       onNextWeek={() => setWeekKey((current) => addWeeks(current, 1))}
       onToday={() => setWeekKey(getCurrentWeekKey())}
+      onOpenCalendar={() => {
+        allowCalendarEntry("shared");
+        router.push({
+          pathname: "/calendar",
+          params: { source: "shared", week: weekKey },
+        });
+      }}
     />
   );
 }
