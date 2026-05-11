@@ -229,6 +229,7 @@ export async function createSharedBundleLink(input: {
     user_metadata?: Record<string, unknown>;
   };
   weekKey: string;
+  bundleTitle: string;
   rangeStart: number;
   rangeEnd: number;
   selectedLabelIds: string[];
@@ -295,7 +296,7 @@ export async function createSharedBundleLink(input: {
   const payload: SharedBundlePayload = {
     v: SHARE_PAYLOAD_VERSION,
     id: generateId(),
-    title: `${ownerName}의 ${input.weekKey} 일정`,
+    title: input.bundleTitle.trim(),
     ownerName,
     color: DEFAULT_BUNDLE_COLOR,
     weekKey: input.weekKey,

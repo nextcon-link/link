@@ -54,6 +54,7 @@ type ShareRange = {
 };
 
 const DEFAULT_SHARE_SETTINGS: ShareQrSettings = {
+  bundleTitle: "",
   selectedLabelIds: [],
   includeUnlabeled: true,
   rangePreset: "this_week",
@@ -62,6 +63,22 @@ const DEFAULT_SHARE_SETTINGS: ShareQrSettings = {
   expiryPreset: "none",
   customExpiryDays: "",
 };
+
+function getOwnerName(user: {
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+}) {
+  const metadataName =
+    user.user_metadata?.display_name ??
+    user.user_metadata?.full_name ??
+    user.user_metadata?.username;
+
+  if (typeof metadataName === "string" && metadataName.trim()) {
+    return metadataName.trim();
+  }
+
+  return user.email?.split("@")[0] || "공유 사용자";
+}
 
 function isValidDateString(value: string) {
   return (
@@ -171,6 +188,15 @@ function formatExpirySummary(settings: ShareQrSettings) {
     : "상대방 화면에서 사라지는 기간을 입력하세요.";
 }
 
+function formatBundleSubtitle(ownerName: string, expiresAt: number | null) {
+  if (!expiresAt) return ownerName;
+
+  const date = dayjs(expiresAt);
+  return `${ownerName} · ${date.month() + 1}/${date.date()} ${date.format(
+    "HH:mm",
+  )} 사라짐`;
+}
+
 function resolveSharedTitle(row: LocalEventRow) {
   const eventMode = row.event.sharingMode as sharingMode;
 
@@ -208,6 +234,9 @@ export default function SharedScreen() {
   const shareSettingsError =
     shareRange.error ??
     getExpiryError(shareSettings) ??
+    (!shareSettings.bundleTitle.trim()
+      ? "일정 덩어리 이름을 입력하세요."
+      : null) ??
     (shareSettings.selectedLabelIds.length === 0 && !shareSettings.includeUnlabeled
       ? "공유할 라벨을 하나 이상 선택하세요."
       : null);
@@ -224,6 +253,15 @@ export default function SharedScreen() {
     if (shareRange.error) return;
     setSharePreviewWeekKey(getWeekKey(shareRange.startDate));
   }, [shareRange.error, shareRange.startDate]);
+
+  useEffect(() => {
+    if (!user || shareSettings.bundleTitle.trim()) return;
+
+    setShareSettings((current) => ({
+      ...current,
+      bundleTitle: `${getOwnerName(user)}의 ${weekKey} 일정`,
+    }));
+  }, [shareSettings.bundleTitle, user, weekKey]);
 
   const { data: bundleList = [] } = useLiveQuery(
     db
@@ -476,7 +514,7 @@ export default function SharedScreen() {
       ...bundleList.map((bundle) => ({
         id: bundle.id,
         title: bundle.title,
-        subtitle: bundle.ownerName,
+        subtitle: formatBundleSubtitle(bundle.ownerName, bundle.expiresAt),
         color: bundle.color,
         canDelete: !bundle.isDemo,
         canChangeColor: true,
@@ -493,6 +531,7 @@ export default function SharedScreen() {
     if (
       range.error ||
       expiryError ||
+      !settings.bundleTitle.trim() ||
       (settings.selectedLabelIds.length === 0 && !settings.includeUnlabeled)
     ) {
       return;
@@ -504,6 +543,7 @@ export default function SharedScreen() {
         userId,
         user,
         weekKey,
+        bundleTitle: settings.bundleTitle,
         rangeStart: range.start,
         rangeEnd: range.end,
         selectedLabelIds: settings.selectedLabelIds,
