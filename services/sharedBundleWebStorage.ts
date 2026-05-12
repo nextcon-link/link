@@ -1,5 +1,6 @@
 import {
   decodeSharedBundlePayload,
+  normalizeSharedBundleParam,
   type SharedBundlePayloadEvent,
 } from "@/services/sharedBundlePayload";
 
@@ -98,7 +99,8 @@ export function loadWebSharedBundles() {
 
 export function saveWebSharedBundle(encodedBundle: string) {
   const payload = decodeSharedBundlePayload(encodedBundle);
-  if (!payload) return null;
+  const normalizedBundle = normalizeSharedBundleParam(encodedBundle);
+  if (!payload || !normalizedBundle) return null;
 
   const localBundleId = `imported_${payload.id}`;
   const existing = loadWebSharedBundles();
@@ -113,7 +115,7 @@ export function saveWebSharedBundle(encodedBundle: string) {
     expiresAt: payload.expiresAt,
     createdAt: payload.createdAt,
     receivedAt: Date.now(),
-    encodedBundle,
+    encodedBundle: normalizedBundle,
     events: payload.events,
   };
   const next = [

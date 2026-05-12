@@ -9,6 +9,7 @@ import { createSharedBundleAppUrl } from "@/services/sharedBundlePayload";
 import {
   deleteWebSharedBundle,
   loadWebSharedBundles,
+  saveWebSharedBundle,
   updateWebSharedBundleColor,
   type WebStoredSharedBundle,
 } from "@/services/sharedBundleWebStorage";
@@ -32,7 +33,7 @@ function openBundleInApp(bundle: WebStoredSharedBundle | undefined) {
 }
 
 export default function WebSharedScreen() {
-  const { week } = useLocalSearchParams();
+  const { bundle, week } = useLocalSearchParams();
   const [weekKey, setWeekKey] = useState(
     typeof week === "string" ? week : getCurrentWeekKey(),
   );
@@ -45,6 +46,19 @@ export default function WebSharedScreen() {
       setWeekKey(week);
     }
   }, [week]);
+
+  useEffect(() => {
+    const encodedBundle = Array.isArray(bundle) ? bundle[0] : bundle;
+    if (!encodedBundle) return;
+
+    const stored = saveWebSharedBundle(encodedBundle);
+    if (!stored) return;
+
+    setBundles(loadWebSharedBundles());
+    if (typeof week !== "string") {
+      setWeekKey(stored.weekKey);
+    }
+  }, [bundle, week]);
 
   useEffect(() => {
     const refreshBundles = () => setBundles(loadWebSharedBundles());

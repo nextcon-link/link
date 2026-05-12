@@ -27,6 +27,7 @@ export default function WebSharedBundleImportScreen() {
 
     const sharedUrl = new URL("/shared", window.location.origin);
     sharedUrl.searchParams.set("week", stored.weekKey);
+    sharedUrl.searchParams.set("bundle", stored.encodedBundle);
     window.location.replace(sharedUrl.toString());
   }, [bundle]);
 

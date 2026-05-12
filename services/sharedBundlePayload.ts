@@ -48,15 +48,37 @@ export function createSharedBundleWebUrl(payload: SharedBundlePayload) {
 }
 
 export function createSharedBundleAppUrl(encodedBundle: string) {
-  return `${SHARE_APP_BASE_URL}?bundle=${encodedBundle}`;
+  const payload = decodeSharedBundlePayload(encodedBundle);
+  const bundleParam = payload
+    ? encodeSharedBundlePayload(payload)
+    : encodeURIComponent(encodedBundle);
+  return `${SHARE_APP_BASE_URL}?bundle=${bundleParam}`;
+}
+
+export function normalizeSharedBundleParam(
+  value: string | string[] | undefined,
+) {
+  const payload = decodeSharedBundlePayload(value);
+  return payload ? encodeSharedBundlePayload(payload) : null;
 }
 
 export function decodeSharedBundlePayload(value: string | string[] | undefined) {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw) return null;
 
+  const candidates = [raw];
   try {
     const decoded = decodeURIComponent(raw);
+    if (decoded !== raw) {
+      candidates.push(decoded);
+    }
+  } catch {
+    // Some web routers may already pass a decoded JSON string here.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const decoded = candidate;
     const payload = JSON.parse(decoded) as Partial<SharedBundlePayload> & {
       i?: unknown;
       t?: unknown;
@@ -148,7 +170,10 @@ export function decodeSharedBundlePayload(value: string | string[] | undefined) 
       createdAt,
       events: decodedEvents,
     } satisfies SharedBundlePayload;
-  } catch {
-    return null;
+    } catch {
+      continue;
+    }
   }
+
+  return null;
 }
