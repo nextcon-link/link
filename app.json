@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "testapp",
-    "slug": "testapp",
+    "name": "Link",
+    "slug": "nextcon-link",
+    "description": "손쉽게 공유하는 우리의 일정",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -41,7 +42,11 @@
         }
       ],
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR"
+      ]
     },
     "web": {
       "output": "static",
@@ -71,6 +76,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7030cee1-1b39-4d50-8965-cf237f6d930b"
+      }
     }
   }
 }
