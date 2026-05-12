@@ -118,6 +118,7 @@ export default function RootLayout() {
         <Stack.Screen name="labels" options={{ title: '라벨 관리' }} />
         <Stack.Screen name="google" options={{ title: 'Google Calendar' }} />
         <Stack.Screen name="friends" options={{ title: '친구' }} />
+        <Stack.Screen name="shared-bundle" options={{ headerShown: false }} />
         <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />

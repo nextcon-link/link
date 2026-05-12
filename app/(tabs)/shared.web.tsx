@@ -5,65 +5,40 @@ import SharedBundleViewer, {
   type SharedBundleSource,
 } from "@/components/SharedBundleViewer";
 import type { WeekCalendarEvent } from "@/components/WeekCalendarView";
+import { createSharedBundleAppUrl } from "@/services/sharedBundlePayload";
+import {
+  deleteWebSharedBundle,
+  loadWebSharedBundles,
+  updateWebSharedBundleColor,
+  type WebStoredSharedBundle,
+} from "@/services/sharedBundleWebStorage";
 import { allowCalendarEntry } from "@/store/calendarAccess";
-import { addWeeks, formatDate, getCurrentWeekKey, getWeekDates } from "@/utils/date";
-import { toUtcMs } from "@/utils/datetime";
+import { addWeeks, getCurrentWeekKey } from "@/utils/date";
 
-type WebSharedBundle = SharedBundleSource & {
-  events: {
-    title: string;
-    dayIndex: number;
-    startHour: number;
-    startMinute: number;
-    endHour: number;
-    endMinute: number;
-  }[];
-};
+function formatBundleSubtitle(ownerName: string, expiresAt: number | null) {
+  if (!expiresAt) return ownerName;
 
-const WEB_SHARED_BUNDLES: WebSharedBundle[] = [
-  {
-    id: "web_exam_week",
-    title: "시험 주간 일정",
-    subtitle: "민서",
-    color: "#6C8AE4",
-    events: [
-      { title: "자료조사", dayIndex: 1, startHour: 9, startMinute: 0, endHour: 10, endMinute: 30 },
-      { title: "팀 회의", dayIndex: 3, startHour: 13, startMinute: 0, endHour: 15, endMinute: 0 },
-      { title: "시험 보고서", dayIndex: 5, startHour: 10, startMinute: 0, endHour: 12, endMinute: 0 },
-    ],
-  },
-  {
-    id: "web_club",
-    title: "동아리 일정",
-    subtitle: "지훈",
-    color: "#E27A5F",
-    events: [
-      { title: "운영 회의", dayIndex: 2, startHour: 14, startMinute: 0, endHour: 16, endMinute: 0 },
-      { title: "공연 연습", dayIndex: 4, startHour: 18, startMinute: 0, endHour: 20, endMinute: 0 },
-      { title: "봉사 활동", dayIndex: 6, startHour: 11, startMinute: 0, endHour: 13, endMinute: 0 },
-    ],
-  },
-  {
-    id: "web_available",
-    title: "가능 시간 모음",
-    subtitle: "서연",
-    color: "#3BAF7A",
-    events: [
-      { title: "카페 알바", dayIndex: 1, startHour: 15, startMinute: 0, endHour: 18, endMinute: 0 },
-      { title: "병원 예약", dayIndex: 3, startHour: 9, startMinute: 0, endHour: 11, endMinute: 0 },
-      { title: "스터디", dayIndex: 4, startHour: 10, startMinute: 0, endHour: 12, endMinute: 0 },
-      { title: "알바", dayIndex: 5, startHour: 14, startMinute: 0, endHour: 17, endMinute: 0 },
-    ],
-  },
-];
-const WEB_DEMO_WEEK_KEY = "2026-05-10";
+  const date = new Date(expiresAt);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${ownerName} · ${month}/${day} ${hours}:${minutes} 사라짐`;
+}
+
+function openBundleInApp(bundle: WebStoredSharedBundle | undefined) {
+  if (!bundle || typeof window === "undefined") return;
+  window.location.href = createSharedBundleAppUrl(bundle.encodedBundle);
+}
 
 export default function WebSharedScreen() {
   const { week } = useLocalSearchParams();
   const [weekKey, setWeekKey] = useState(
     typeof week === "string" ? week : getCurrentWeekKey(),
   );
-  const demoWeekDates = useMemo(() => getWeekDates(WEB_DEMO_WEEK_KEY), []);
+  const [bundles, setBundles] = useState<WebStoredSharedBundle[]>(() =>
+    loadWebSharedBundles(),
+  );
 
   useEffect(() => {
     if (typeof week === "string") {
@@ -71,45 +46,68 @@ export default function WebSharedScreen() {
     }
   }, [week]);
 
+  useEffect(() => {
+    const refreshBundles = () => setBundles(loadWebSharedBundles());
+    window.addEventListener("storage", refreshBundles);
+    window.addEventListener("nextcon-shared-bundles", refreshBundles);
+
+    return () => {
+      window.removeEventListener("storage", refreshBundles);
+      window.removeEventListener("nextcon-shared-bundles", refreshBundles);
+    };
+  }, []);
+
   const sources = useMemo<SharedBundleSource[]>(
     () =>
-      WEB_SHARED_BUNDLES.map(({ id, title, subtitle, color }) => ({
-        id,
-        title,
-        subtitle,
-        color,
+      bundles.map((bundle) => ({
+        id: bundle.id,
+        title: bundle.title,
+        subtitle: formatBundleSubtitle(bundle.ownerName, bundle.expiresAt),
+        color: bundle.color,
+        canDelete: true,
+        canChangeColor: true,
       })),
-    [],
+    [bundles],
   );
 
   const events = useMemo<WeekCalendarEvent[]>(
     () =>
-      WEB_SHARED_BUNDLES.flatMap((bundle) =>
-        bundle.events.map((event, index) => {
-          const date = formatDate(demoWeekDates[event.dayIndex]);
-
-          return {
+      bundles
+        .flatMap((bundle) =>
+          bundle.events.map((event, index) => ({
             id: `${bundle.id}:${index}`,
             title: event.title,
-            startTime: toUtcMs(date, event.startHour, event.startMinute),
-            endTime: toUtcMs(date, event.endHour, event.endMinute),
+            startTime: event.startTime,
+            endTime: event.endTime,
+            isAllDay: event.isAllDay,
             color: bundle.color,
             source: bundle.id,
             editable: false,
             layoutGroupId: bundle.id,
-          };
-        }),
-      ),
-    [demoWeekDates],
+          })),
+        )
+        .sort((a, b) => a.startTime - b.startTime),
+    [bundles],
   );
+
+  const latestBundle = useMemo(
+    () =>
+      [...bundles].sort((a, b) => b.receivedAt - a.receivedAt)[0],
+    [bundles],
+  );
+  const sourceKey = sources.map((source) => source.id).join(":");
 
   return (
     <SharedBundleViewer
+      key={sourceKey}
       weekKey={weekKey}
       sources={sources}
       events={events}
       emptyText="공유된 일정이 없습니다."
       defaultSelectedSourceIds={sources.map((source) => source.id)}
+      onDeleteSource={deleteWebSharedBundle}
+      onChangeSourceColor={updateWebSharedBundleColor}
+      onOpenApp={latestBundle ? () => openBundleInApp(latestBundle) : undefined}
       onPreviousWeek={() => setWeekKey((current) => addWeeks(current, -1))}
       onNextWeek={() => setWeekKey((current) => addWeeks(current, 1))}
       onToday={() => setWeekKey(getCurrentWeekKey())}

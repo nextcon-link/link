@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.ac.korea.nextcon.link",
+      "sha256_cert_fingerprints": [
+        "<ANDROID_SHA256_FINGERPRINT>"
+      ]
+    }
+  }
+]

@@ -88,6 +88,7 @@ type Props = {
   onCloseQr?: () => void;
   onDeleteSource?: (sourceId: string) => void;
   onChangeSourceColor?: (sourceId: string, color: string) => void | Promise<void>;
+  onOpenApp?: () => void;
   onPreviousWeek?: () => void;
   onNextWeek?: () => void;
   onToday?: () => void;
@@ -174,6 +175,7 @@ export default function SharedBundleViewer({
   onCloseQr,
   onDeleteSource,
   onChangeSourceColor,
+  onOpenApp,
   onPreviousWeek,
   onNextWeek,
   onToday,
@@ -295,6 +297,15 @@ export default function SharedBundleViewer({
       </View>
 
       <View style={styles.actionDock}>
+        {onOpenApp && (
+          <Pressable
+            style={[styles.actionButton, styles.appButton]}
+            onPress={onOpenApp}
+          >
+            <Text style={styles.appButtonText}>앱에서 열기</Text>
+          </Pressable>
+        )}
+
         {onCreateQr && shareSettings && (
           <Pressable
             style={[styles.actionButton, styles.qrButton]}
@@ -814,6 +825,15 @@ const styles = StyleSheet.create({
   qrButton: {
     minWidth: 86,
     backgroundColor: "#F5D76E",
+  },
+  appButton: {
+    minWidth: 96,
+    backgroundColor: "#E8F0FF",
+  },
+  appButtonText: {
+    color: "#1C3F8C",
+    fontSize: 15,
+    fontWeight: "800",
   },
   qrButtonText: {
     color: "#111",
