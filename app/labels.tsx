@@ -39,6 +39,13 @@ const VISIBILITY_LEVEL: VisibilityOption[] = [
   {label:"부분 공개",visibility:"blind"},
 ];
 
+function labelStorageText(label: { googleCalendarId: string | null; googleIsReadonly: boolean }) {
+  if (label.googleCalendarId) {
+    return label.googleIsReadonly ? "Google 읽기전용" : "Google";
+  }
+  return "Link";
+}
+
 export default function LabelsScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const [name, setName] = useState("");
@@ -211,11 +218,7 @@ export default function LabelsScreen() {
               style={[styles.colorDot, { backgroundColor: lbl.color }]}
             />
             <Text style={styles.labelName}>{lbl.name}</Text>
-            {lbl.googleCalendarId && (
-              <Text style={styles.googleBadge}>
-                {lbl.googleIsReadonly ? "Google 읽기전용" : "Google"}
-              </Text>
-            )}
+            <Text style={styles.storageBadge}>{labelStorageText(lbl)}</Text>
             <View style={styles.labelActions}>
               <Pressable
                 style={styles.editButton}
@@ -233,6 +236,7 @@ export default function LabelsScreen() {
           </View>
         ),
       )}
+
     </ScrollView>
     </>
   );
@@ -342,7 +346,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  googleBadge: {
+  storageBadge: {
     borderWidth: 1,
     borderColor: "#DDD",
     borderRadius: 999,

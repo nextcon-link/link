@@ -1,10 +1,23 @@
 // expo-calendar is not supported on web.
 import type { EventWithLabel } from './deviceSync';
+import type { DeviceCalendarOption } from './deviceCalendarSettings';
 
 export type { MergedEvent, EventWithLabel } from './deviceSync';
 
 export async function requestCalendarPermission(): Promise<boolean> {
   return false;
+}
+
+export async function isDeviceCalendarLabEnabled(): Promise<boolean> {
+  return false;
+}
+
+export async function getDeviceCalendarOptions(): Promise<DeviceCalendarOption[]> {
+  return [];
+}
+
+export async function getWritableDeviceCalendarOptions(): Promise<DeviceCalendarOption[]> {
+  return [];
 }
 
 export async function getMergedEvents(

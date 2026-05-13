@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams, type Href } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
@@ -125,7 +125,7 @@ export default function HomeScreen() {
   const [mergedEvents, setMergedEvents] = useState<MergedEvent[]>([]);
 
   // Flow C — merge device calendar events in memory whenever local events change
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
 
     getMergedEvents(localEvents, weekDates[0], weekDates[6]).then(
@@ -139,7 +139,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [localEvents, weekDates]);
+  }, [localEvents, weekDates]));
 
   const calendarEvents: WeekCalendarEvent[] = useMemo(
     () =>
@@ -152,7 +152,11 @@ export default function HomeScreen() {
         color: event.labelColor ?? "#9FF4E2",
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,
-        editable: event.source === "local" && !event.isReadonly,
+        editable:
+          event.source === "local"
+            ? !event.isReadonly
+            : Boolean(event.canModify && !event.isAllDay),
+        deviceCalendarId: event.deviceCalendarId,
         editEventId: event.originalEventId ?? event.id,
         layoutGroupId: MAIN_CALENDAR_LAYOUT_GROUP_ID,
       })),
@@ -234,11 +238,21 @@ export default function HomeScreen() {
           weekKey={weekKey}
           events={calendarEvents}
           onEventPress={(event) => {
-            if (!event.editable) return;
-            router.push({
-              pathname: "/edit",
-              params: { id: event.editEventId ?? event.id, week: weekKey },
-            });
+            if (event.source === "device") {
+              if (!event.editable) return;
+              router.push({
+                pathname: "/device-event",
+                params: { id: event.editEventId ?? event.id, week: weekKey },
+              });
+              return;
+            }
+
+            if (event.editable) {
+              router.push({
+                pathname: "/edit",
+                params: { id: event.editEventId ?? event.id, week: weekKey },
+              });
+            }
           }}
           onPreviousWeek={() => moveWeek(-1)}
           onNextWeek={() => moveWeek(1)}

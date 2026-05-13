@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,6 +16,11 @@ import {
   syncGoogleCalendarNow,
   type GoogleConnectionStatus,
 } from "@/services/googleCalendarApi";
+import { requestCalendarPermission } from "@/services/deviceSync";
+import {
+  isDeviceCalendarLabEnabled,
+  setDeviceCalendarLabEnabled,
+} from "@/services/deviceCalendarSettings";
 import { syncAll } from "@/services/syncEngine";
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -34,6 +39,7 @@ export default function GoogleCalendarScreen() {
   const [status, setStatus] = useState<GoogleConnectionStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeviceLabEnabled, setIsDeviceLabEnabled] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +59,10 @@ export default function GoogleCalendarScreen() {
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    isDeviceCalendarLabEnabled().then(setIsDeviceLabEnabled);
+  }, []);
 
   const handleConnect = async () => {
     setIsSubmitting(true);
@@ -105,6 +115,35 @@ export default function GoogleCalendarScreen() {
     }
   };
 
+  const handleToggleDeviceLab = async () => {
+    setIsSubmitting(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      if (isDeviceLabEnabled) {
+        await setDeviceCalendarLabEnabled(false);
+        setIsDeviceLabEnabled(false);
+        setMessage("기기 캘린더 실험실 기능을 껐습니다.");
+        return;
+      }
+
+      const hasPermission = await requestCalendarPermission();
+      if (!hasPermission) {
+        setError("기기 캘린더 권한이 필요합니다.");
+        return;
+      }
+
+      await setDeviceCalendarLabEnabled(true);
+      setIsDeviceLabEnabled(true);
+      setMessage("기기 캘린더 실험실 기능을 켰습니다.");
+    } catch (e) {
+      setError(getErrorMessage(e, "기기 캘린더 실험실 설정에 실패했습니다."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <>
       <Stack.Screen options={{ title: "Google Calendar" }} />
@@ -124,6 +163,9 @@ export default function GoogleCalendarScreen() {
             <Text style={styles.statusValue}>
               {status?.isConnected ? "연결됨" : "연결 안 됨"}
             </Text>
+            {status?.isConnected && status.googleEmail && (
+              <Text style={styles.statusMeta}>{status.googleEmail}</Text>
+            )}
             <Text style={styles.statusMeta}>
               동기화된 캘린더 {status?.calendarCount ?? 0}개
             </Text>
@@ -180,6 +222,46 @@ export default function GoogleCalendarScreen() {
         >
           <Text style={styles.dangerButtonText}>연결 해제</Text>
         </Pressable>
+
+        <View style={styles.labBox}>
+          <View style={styles.labHeader}>
+            <View style={styles.labTitleBox}>
+              <Text style={styles.labTitle}>실험실</Text>
+              <Text style={styles.labSubtitle}>
+                기기 캘린더를 라벨처럼 불러옵니다.
+              </Text>
+            </View>
+            <Pressable
+              disabled={isSubmitting}
+              onPress={handleToggleDeviceLab}
+              style={[
+                styles.toggleTrack,
+                isDeviceLabEnabled && styles.toggleTrackOn,
+                isSubmitting && styles.disabledButton,
+              ]}
+            >
+              <View
+                style={[
+                  styles.toggleThumb,
+                  isDeviceLabEnabled && styles.toggleThumbOn,
+                ]}
+              />
+            </Pressable>
+          </View>
+          <Text style={styles.labDescription}>
+            iCloud, Samsung Calendar 등 휴대폰에 등록된 캘린더를 표시하고 편집합니다. 기기 설정에 따라 읽기전용이거나 중복될 수 있습니다.
+          </Text>
+          {isDeviceLabEnabled && (
+            <Pressable
+              style={styles.deviceSettingsButton}
+              onPress={() => router.push("/device-calendars")}
+            >
+              <Text style={styles.deviceSettingsButtonText}>
+                기기 캘린더 라벨 설정
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </ScrollView>
     </>
   );
@@ -284,5 +366,70 @@ const styles = StyleSheet.create({
     color: "#2E7D32",
     fontSize: 13,
     marginBottom: 10,
+  },
+  labBox: {
+    borderWidth: 1,
+    borderColor: "#DDD",
+    borderRadius: 10,
+    marginTop: 24,
+    padding: 16,
+    gap: 10,
+  },
+  labHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  labTitleBox: {
+    flex: 1,
+  },
+  labTitle: {
+    color: "#111",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  labSubtitle: {
+    color: "#666",
+    fontSize: 13,
+    marginTop: 2,
+  },
+  labDescription: {
+    color: "#666",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  toggleTrack: {
+    width: 50,
+    height: 30,
+    justifyContent: "center",
+    borderRadius: 15,
+    backgroundColor: "#D6D6D6",
+    paddingHorizontal: 3,
+  },
+  toggleTrackOn: {
+    backgroundColor: "#111",
+  },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#FFF",
+  },
+  toggleThumbOn: {
+    alignSelf: "flex-end",
+  },
+  deviceSettingsButton: {
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#111",
+    borderRadius: 10,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  deviceSettingsButtonText: {
+    color: "#111",
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

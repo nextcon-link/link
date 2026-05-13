@@ -84,6 +84,7 @@ end $$;
 create table if not exists public.google_connections (
   user_id uuid primary key references auth.users(id) on delete cascade,
   google_subject text,
+  google_email text,
   access_token text,
   refresh_token text,
   expires_at timestamptz,
@@ -131,6 +132,8 @@ create table if not exists public.friendships (
   check (user_low_id < user_high_id),
   unique (user_low_id, user_high_id)
 );
+
+alter table public.google_connections add column if not exists google_email text;
 
 create table if not exists public.friend_share_settings (
   owner_user_id uuid not null references auth.users(id) on delete cascade,

@@ -110,6 +110,7 @@ export async function createSharedBundleLink(input: {
   selectedLabelIds: string[];
   includeUnlabeled: boolean;
   eventVisibilityOverrides: Record<string, ShareVisibility>;
+  extraEvents?: SharedBundlePayloadEvent[];
   expiresAt: number | null;
 }) {
   const selectedLabels = new Set(input.selectedLabelIds);
@@ -140,7 +141,7 @@ export async function createSharedBundleLink(input: {
     );
 
   const ownerName = getOwnerName(input.user);
-  const payloadEvents = rows
+  const localPayloadEvents = rows
     .flatMap((row) => {
       if (row.event.labelId) {
         if (!selectedLabels.has(row.event.labelId)) return [];
@@ -178,6 +179,10 @@ export async function createSharedBundleLink(input: {
         });
     })
     .sort((a, b) => a.startTime - b.startTime);
+  const payloadEvents = [
+    ...localPayloadEvents,
+    ...(input.extraEvents ?? []),
+  ].sort((a, b) => a.startTime - b.startTime);
 
   const payload: SharedBundlePayload = {
     v: SHARE_PAYLOAD_VERSION,

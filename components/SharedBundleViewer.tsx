@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -244,18 +245,27 @@ export default function SharedBundleViewer({
     onCloseQr?.();
   };
 
+  const deleteSource = (source: SharedBundleSource) => {
+    setSelectedSourceIds((current) =>
+      current.filter((sourceId) => sourceId !== source.id),
+    );
+    onDeleteSource?.(source.id);
+  };
+
   const confirmDelete = (source: SharedBundleSource) => {
+    if (Platform.OS === "web") {
+      if (window.confirm(`${source.title}을 삭제할까요?`)) {
+        deleteSource(source);
+      }
+      return;
+    }
+
     Alert.alert("일정 덩어리 삭제", `${source.title}을 삭제할까요?`, [
       { text: "취소", style: "cancel" },
       {
         text: "삭제",
         style: "destructive",
-        onPress: () => {
-          setSelectedSourceIds((current) =>
-            current.filter((sourceId) => sourceId !== source.id),
-          );
-          onDeleteSource?.(source.id);
-        },
+        onPress: () => deleteSource(source),
       },
     ]);
   };
@@ -393,7 +403,10 @@ export default function SharedBundleViewer({
                     {source.canDelete && (
                       <Pressable
                         style={styles.deleteButton}
-                        onPress={() => confirmDelete(source)}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          confirmDelete(source);
+                        }}
                       >
                         <Text style={styles.deleteButtonText}>삭제</Text>
                       </Pressable>

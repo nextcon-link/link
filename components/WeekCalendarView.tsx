@@ -40,6 +40,7 @@ export type WeekCalendarEvent = {
   source?: string;
   editable?: boolean;
   editEventId?: string;
+  deviceCalendarId?: string;
   layoutGroupId?: string;
   shareOverrideKey?: string;
   shareVisibility?: "visible" | "blind" | "invisible";

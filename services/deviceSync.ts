@@ -1,6 +1,12 @@
 import * as Calendar from 'expo-calendar';
 import type { Event, Label } from '../database/schema';
 import { expandEventOccurrences } from './recurrence';
+import {
+  buildDeviceCalendarOptions,
+  isDeviceCalendarLabEnabled,
+  type DeviceCalendarOption,
+} from './deviceCalendarSettings';
+import { getGoogleConnectionStatus } from './googleCalendarApi';
 
 // Unified type for rendering — local DB events and read-only device calendar events.
 export type MergedEvent = {
@@ -14,6 +20,9 @@ export type MergedEvent = {
   originalEventId?: string;
   isReadonly?: boolean;
   syncStatus?: string;
+  deviceCalendarId?: string;
+  deviceCalendarTitle?: string;
+  canModify?: boolean;
 };
 
 export type EventWithLabel = Event & { label: Label | null };
@@ -21,6 +30,43 @@ export type EventWithLabel = Event & { label: Label | null };
 export async function requestCalendarPermission(): Promise<boolean> {
   const { status } = await Calendar.requestCalendarPermissionsAsync();
   return status === 'granted';
+}
+
+async function hasCalendarPermission(): Promise<boolean> {
+  const { status } = await Calendar.getCalendarPermissionsAsync();
+  return status === 'granted';
+}
+
+async function getGoogleStatusForDeviceFiltering() {
+  try {
+    return await getGoogleConnectionStatus();
+  } catch {
+    return null;
+  }
+}
+
+export async function getDeviceCalendarOptions(): Promise<DeviceCalendarOption[]> {
+  if (!(await isDeviceCalendarLabEnabled())) return [];
+
+  const hasPermission = await hasCalendarPermission();
+  if (!hasPermission) return [];
+
+  const [calendars, googleStatus] = await Promise.all([
+    Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT),
+    getGoogleStatusForDeviceFiltering(),
+  ]);
+
+  return buildDeviceCalendarOptions(calendars, googleStatus);
+}
+
+export async function getWritableDeviceCalendarOptions(): Promise<DeviceCalendarOption[]> {
+  const options = await getDeviceCalendarOptions();
+  return options.filter(
+    (calendar) =>
+      calendar.selected &&
+      calendar.allowsModifications &&
+      calendar.disabledReason === null,
+  );
 }
 
 // Flow C — fetch device calendar events and merge with local DB events in memory.
@@ -50,26 +96,38 @@ export async function getMergedEvents(
   let deviceMapped: MergedEvent[] = [];
 
   try {
-    const hasPermission = await requestCalendarPermission();
-    if (hasPermission) {
-      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-      const calendarIds = calendars.map((c) => c.id);
-      if (calendarIds.length > 0) {
-        const deviceEvents = await Calendar.getEventsAsync(
-          calendarIds,
-          startDate,
-          endDate,
-        );
-        deviceMapped = deviceEvents.map((e) => ({
-          id: `device__${e.id}`,
+    const calendars = await getDeviceCalendarOptions();
+    const selectedCalendars = calendars.filter((calendar) => calendar.selected);
+    const calendarsById = new Map(
+      selectedCalendars.map((calendar) => [calendar.id, calendar]),
+    );
+    const calendarIds = selectedCalendars.map((c) => c.id);
+
+    if (calendarIds.length > 0) {
+      const deviceEvents = await Calendar.getEventsAsync(
+        calendarIds,
+        startDate,
+        endDate,
+      );
+      deviceMapped = deviceEvents.map((e) => {
+        const startTime = new Date(e.startDate).getTime();
+        const endTime = new Date(e.endDate).getTime();
+
+        return {
+          id: `device__${e.calendarId}__${e.id}__${startTime}`,
           title: e.title ?? '',
-          startTime: new Date(e.startDate).getTime(),
-          endTime: new Date(e.endDate).getTime(),
+          startTime,
+          endTime,
           isAllDay: e.allDay ?? false,
           source: 'device',
-          labelColor: '#A8C8F0',
-        }));
-      }
+          labelColor: calendarsById.get(e.calendarId)?.color ?? '#A8C8F0',
+          originalEventId: e.id,
+          isReadonly: !calendarsById.get(e.calendarId)?.allowsModifications,
+          deviceCalendarId: e.calendarId,
+          deviceCalendarTitle: calendarsById.get(e.calendarId)?.title,
+          canModify: Boolean(calendarsById.get(e.calendarId)?.allowsModifications),
+        };
+      });
     }
   } catch {
     // Device calendar unavailable — show only local events

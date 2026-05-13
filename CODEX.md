@@ -51,8 +51,8 @@ app/
   login.tsx/signup.tsx    Supabase email/password auth screens
   auth-callback.tsx       Supabase email/auth callback handler
   add.tsx/edit.tsx        Event create/edit modal screens
-  labels.tsx              Label CRUD, visibility, Google entry point
-  google.tsx              Google Calendar connect/sync/disconnect UI
+  labels.tsx              Label CRUD and storage badges
+  google.tsx              Google Calendar UI + device-calendar lab toggle
   friends.tsx             Friend list/add/remove UI
   (tabs)/
     index.tsx             Main native weekly calendar
@@ -75,7 +75,10 @@ services/
   supabaseApi.web.ts      Web stub
   syncEngine.ts           Local <-> Supabase sync engine
   googleCalendarApi.ts    Client wrapper around google-sync-now Edge Function
-  deviceSync.ts           Read-only device calendar merge
+  deviceSync.ts           Device-calendar labels, filtering, and render merge
+  deviceCalendarCrud.ts   Native device calendar create/update/delete wrappers
+  deviceCalendarSettings.ts
+                          Device-calendar label selection and provider detection
   deviceSync.web.ts       Web local-only stub
   friendApi.ts            Supabase RPC wrappers for friendships
   profileApi.ts           Profile/public profile helpers
@@ -175,14 +178,36 @@ Important behavior:
 - Label soft delete clears event `labelId`.
 - When push changes remote data, the sync engine tries to trigger Google sync.
 
-### 4. Device calendar is read-only
+### 4. Device calendar stays OS-owned
 
-`services/deviceSync.ts` reads device calendars through `expo-calendar`, merges
-them in memory, and returns renderable events.
+`services/deviceSync.ts` reads device calendars through `expo-calendar`, treats
+selected device calendars as label-like choices, merges them in memory, and
+returns renderable events.
 
 Never persist device calendar events into SQLite unless the product direction
-explicitly changes. Device events should remain visually distinct and
-non-editable.
+explicitly changes. Device events should remain visually distinct. Writes go
+directly to the OS calendar through `services/deviceCalendarCrud.ts`, not
+through the local SQLite/Supabase sync engine.
+
+Device calendar support is an experimental/lab feature. It is controlled by
+`device_calendar_lab_enabled_v1` in AsyncStorage and toggled from the bottom of
+`app/google.tsx`. Do not request calendar permission during ordinary app startup
+or label rendering; request it only when the user enables the lab toggle. When
+the toggle is off, device calendar option/event helpers should return empty
+lists.
+
+If Google Calendar is connected, `services/deviceCalendarSettings.ts` tries to
+identify device Google calendars that belong to the same Google email and keeps
+those off to avoid duplicate display/edit paths. Android usually exposes more
+account detail than iOS, so uncertain Google calendars are shown with a warning
+rather than automatically blocked.
+
+When the lab toggle is on, device calendars should be presented as labels, not
+as a separate "save location" concept. Selecting a Link/Google label writes
+through the local SQLite/Supabase/Google flow. Selecting a device-calendar label
+writes directly to that OS calendar. Label management shows stable Link/Google
+labels; device-calendar label selection/configuration lives under the Google
+screen lab section.
 
 ### 5. Google Calendar belongs on the server
 
@@ -400,7 +425,9 @@ npm run lint
 
 For app behavior:
 
-- Native calendar CRUD: add/edit/delete event and label.
+- Native calendar CRUD: add/edit/delete local event and label.
+- Device calendar: settings list, selected calendar display, create/update/delete
+  on a writable device calendar.
 - Auth: login, signup callback if touched.
 - Sync: local pending rows become `synced` after Supabase push.
 - Google: status, connect, manual sync, disconnect if touched.

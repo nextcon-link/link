@@ -13,6 +13,10 @@ import {
 import { db } from "@/database";
 import type { Label } from "@/database/schema";
 import { labels } from "@/database/schema";
+import {
+  getWritableDeviceCalendarOptions,
+} from "@/services/deviceSync";
+import type { DeviceCalendarOption } from "@/services/deviceCalendarSettings";
 import { useAuthStore } from "@/store/auth";
 import { DAYS, formatDate } from "@/utils/date";
 import { sharingMode, type EventFormInput } from "@/utils/events";
@@ -68,8 +72,12 @@ export default function EventForm({
   const [sharingMode, setSharingMode] = useState<sharingMode>(
     initialValue.sharingMode,
   );
+  const [target, setTarget] = useState(initialValue.target);
 
   const [dbLabels, setDbLabels] = useState<Label[]>([]);
+  const [deviceCalendars, setDeviceCalendars] = useState<DeviceCalendarOption[]>([]);
+  const isEditingDeviceEvent =
+    mode === "edit" && initialValue.target.type === "device";
 
   const refreshLabels = useCallback(async () => {
     if (!userId) {
@@ -89,13 +97,33 @@ export default function EventForm({
     setDbLabels(rows);
   }, [userId]);
 
+  const refreshDeviceCalendars = useCallback(async () => {
+    if (mode !== "add" && !isEditingDeviceEvent) {
+      setDeviceCalendars([]);
+      return;
+    }
+
+    const rows = await getWritableDeviceCalendarOptions();
+    if (isEditingDeviceEvent && initialValue.target.type === "device") {
+      const currentDeviceCalendarId = initialValue.target.calendarId;
+      setDeviceCalendars(
+        rows.filter((calendar) => calendar.id === currentDeviceCalendarId),
+      );
+      return;
+    }
+
+    setDeviceCalendars(rows);
+  }, [initialValue.target, isEditingDeviceEvent, mode]);
+
   useFocusEffect(
     useCallback(() => {
       refreshLabels();
-    }, [refreshLabels]),
+      refreshDeviceCalendars();
+    }, [refreshDeviceCalendars, refreshLabels]),
   );
 
   const handleSubmit = async () => {
+    const isDeviceTarget = target.type === "device";
     await onSubmit({
       title,
       date: selectedDate,
@@ -103,9 +131,10 @@ export default function EventForm({
       startMinute,
       endHour,
       endMinute,
-      labelId: selectedLabelId,
-      recurrenceRule,
-      sharingMode,
+      target,
+      labelId: isDeviceTarget ? null : selectedLabelId,
+      recurrenceRule: isDeviceTarget ? null : recurrenceRule,
+      sharingMode: isDeviceTarget ? "none" : sharingMode,
     });
   };
 
@@ -141,38 +170,93 @@ export default function EventForm({
         {/* 라벨 */}
         <Text style={styles.sectionLabel}>라벨</Text>
         <View style={styles.row}>
-          <Pressable
-            style={[
-              styles.chip,
-              selectedLabelId === null && styles.chipSelected,
-            ]}
-            onPress={() => setSelectedLabelId(null)}
-          >
-            <Text style={[styles.chipText, selectedLabelId === null && styles.chipTextSelected]}>
-              없음
-            </Text>
-          </Pressable>
-          {dbLabels.map((lbl) => {
-            const selected = selectedLabelId === lbl.id;
-            const disabled = lbl.googleIsReadonly;
+          {!isEditingDeviceEvent && (
+            <>
+              <Pressable
+                style={[
+                  styles.chip,
+                  target.type === "local" &&
+                    selectedLabelId === null &&
+                    styles.chipSelected,
+                ]}
+                onPress={() => {
+                  setTarget({ type: "local" });
+                  setSelectedLabelId(null);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    target.type === "local" &&
+                      selectedLabelId === null &&
+                      styles.chipTextSelected,
+                  ]}
+                >
+                  없음
+                </Text>
+              </Pressable>
+              {dbLabels.map((lbl) => {
+                const selected =
+                  target.type === "local" && selectedLabelId === lbl.id;
+                const disabled = lbl.googleIsReadonly;
+                return (
+                  <Pressable
+                    key={lbl.id}
+                    disabled={disabled}
+                    style={[
+                      styles.chip,
+                      selected && styles.chipSelected,
+                      disabled && styles.chipDisabled,
+                    ]}
+                    onPress={() => {
+                      setTarget({ type: "local" });
+                      setSelectedLabelId(lbl.id);
+                    }}
+                  >
+                    <View style={[styles.colorDot, { backgroundColor: lbl.color }]} />
+                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                      {lbl.name}{disabled ? " 읽기전용" : ""}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </>
+          )}
+          {deviceCalendars.map((calendar) => {
+            const selected =
+              target.type === "device" && target.calendarId === calendar.id;
             return (
               <Pressable
-                key={lbl.id}
-                disabled={disabled}
+                key={calendar.id}
+                disabled={isEditingDeviceEvent}
                 style={[
                   styles.chip,
                   selected && styles.chipSelected,
-                  disabled && styles.chipDisabled,
+                  isEditingDeviceEvent && styles.chipDisabled,
                 ]}
-                onPress={() => setSelectedLabelId(lbl.id)}
+                onPress={() => {
+                  setTarget({ type: "device", calendarId: calendar.id });
+                  setSelectedLabelId(null);
+                }}
               >
-                <View style={[styles.colorDot, { backgroundColor: lbl.color }]} />
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {lbl.name}{disabled ? " 읽기전용" : ""}
+                <View
+                  style={[styles.colorDot, { backgroundColor: calendar.color }]}
+                />
+                <Text
+                  style={[styles.chipText, selected && styles.chipTextSelected]}
+                >
+                  {calendar.title} 기기
                 </Text>
               </Pressable>
             );
           })}
+          {isEditingDeviceEvent && deviceCalendars.length === 0 && (
+            <View style={[styles.chip, styles.chipSelected]}>
+              <Text style={[styles.chipText, styles.chipTextSelected]}>
+                기기 캘린더
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* 날짜 */}
@@ -270,42 +354,47 @@ export default function EventForm({
         </View>
 
         {/* 공개여부 설정 */}
-        <Text style={styles.sectionLabel}>노출도 설정</Text>
-        <View style={styles.row}>
-          {VISIBILITY_LEVEL.map((opt) => {
-            const selected = sharingMode === opt.visibility;
-            return (
-              <Pressable
-                key={opt.label}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => setSharingMode(opt.visibility)}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {target.type === "local" && (
+          <>
+            {/* 공개여부 설정 */}
+            <Text style={styles.sectionLabel}>노출도 설정</Text>
+            <View style={styles.row}>
+              {VISIBILITY_LEVEL.map((opt) => {
+                const selected = sharingMode === opt.visibility;
+                return (
+                  <Pressable
+                    key={opt.label}
+                    style={[styles.chip, selected && styles.chipSelected]}
+                    onPress={() => setSharingMode(opt.visibility)}
+                  >
+                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-        {/* 반복 */}
-        <Text style={styles.sectionLabel}>반복</Text>
-        <View style={styles.row}>
-          {RECURRENCE_OPTIONS.map((opt) => {
-            const selected = recurrenceRule === opt.rule;
-            return (
-              <Pressable
-                key={opt.label}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => setRecurrenceRule(opt.rule)}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+            {/* 반복 */}
+            <Text style={styles.sectionLabel}>반복</Text>
+            <View style={styles.row}>
+              {RECURRENCE_OPTIONS.map((opt) => {
+                const selected = recurrenceRule === opt.rule;
+                return (
+                  <Pressable
+                    key={opt.label}
+                    style={[styles.chip, selected && styles.chipSelected]}
+                    onPress={() => setRecurrenceRule(opt.rule)}
+                  >
+                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        )}
 
         {/* 삭제 (편집 모드만) */}
         {onDelete && (
