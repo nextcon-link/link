@@ -99,7 +99,7 @@ type Props = {
 type DatePickerTarget = "start" | "end" | null;
 
 const BUNDLE_COLORS = [
-  "#9FF4E2",
+  "#DC143C",
   "#6C8AE4",
   "#E27A5F",
   "#3BAF7A",
@@ -749,7 +749,7 @@ export default function SharedBundleViewer({
                 textSectionTitleColor: "#111111",
                 monthTextColor: "#111111",
                 arrowColor: "#111111",
-                todayTextColor: "#4A90E2",
+                todayTextColor: "#DC143C",
                 dayTextColor: "#111111",
               }}
             />

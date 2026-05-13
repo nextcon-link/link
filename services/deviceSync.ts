@@ -86,7 +86,7 @@ export async function getMergedEvents(
         endTime: occurrence.endTime,
         isAllDay: occurrence.isAllDay,
         source: 'local',
-        labelColor: occurrence.label?.color ?? '#9FF4E2',
+        labelColor: occurrence.label?.color ?? '#DC143C',
         originalEventId: occurrence.originalEventId,
         isReadonly: occurrence.label?.googleIsReadonly ?? false,
         syncStatus: occurrence.syncStatus,

@@ -14,7 +14,7 @@ create table if not exists public.labels (
   id text primary key,
   user_id text not null,
   name text not null,
-  color text not null default '#4A90E2',
+  color text not null default '#DC143C',
   is_visible boolean not null default true,
   google_calendar_id text,
   google_access_role text,

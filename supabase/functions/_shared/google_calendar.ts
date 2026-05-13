@@ -12,7 +12,7 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 const GOOGLE_OAUTH_SCOPE = `${GOOGLE_CALENDAR_SCOPE} openid email profile`;
-const DEFAULT_COLOR = "#4A90E2";
+const DEFAULT_COLOR = "#DC143C";
 
 export type GoogleConnectionStatus = {
   isConnected: boolean;

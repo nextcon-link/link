@@ -50,7 +50,7 @@ import {
 import { sharingMode } from "@/utils/events";
 
 const MY_CALENDAR_ID = "mine";
-const MY_CALENDAR_COLOR = "#9FF4E2";
+const MY_CALENDAR_COLOR = "#DC143C";
 const BLIND_TITLE = "블라인드";
 const DEVICE_LABEL_PREFIX = "device:";
 type ShareVisibility = ShareVisibilityOverride;

@@ -1,4 +1,5 @@
 import { router, Stack, useFocusEffect } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -78,6 +79,7 @@ function getProfileName(friend: FriendProfile): string {
 
 export default function FriendsScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
+  const signOut = useAuthStore((state) => state.signOut);
   const [username, setUsername] = useState("");
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -203,6 +205,11 @@ export default function FriendsScreen() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace("/login");
   };
 
   const handleRemoveFriend = async (friendId: string) => {
@@ -391,7 +398,16 @@ export default function FriendsScreen() {
         contentContainerStyle={styles.content}
         style={styles.container}
       >
-        <Text style={styles.title}>친구</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>친구</Text>
+          <Pressable
+            accessibilityLabel="로그아웃"
+            onPress={handleSignOut}
+            style={styles.logoutButton}
+          >
+            <MaterialCommunityIcons name="logout" size={23} color="#111" />
+          </Pressable>
+        </View>
         <Text style={styles.subtitle}>친구의 아이디를 정확히 입력하세요.</Text>
 
         <View style={styles.addBox}>
@@ -730,6 +746,20 @@ const styles = StyleSheet.create({
     color: "#111",
     fontSize: 26,
     fontWeight: "bold",
+  },
+  headerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  logoutButton: {
+    alignItems: "center",
+    borderColor: "#DDD",
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
   },
   subtitle: {
     color: "#666",

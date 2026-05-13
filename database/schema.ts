@@ -5,7 +5,7 @@ export const labels = sqliteTable('labels', {
   id:         text('id').primaryKey(),
   userId:     text('user_id').notNull(),
   name:       text('name').notNull(),
-  color:      text('color').notNull().default('#4A90E2'),
+  color:      text('color').notNull().default('#DC143C'),
   isVisible:  integer('is_visible', { mode: 'boolean' }).notNull().default(true),
   googleCalendarId: text('google_calendar_id'),
   googleAccessRole: text('google_access_role'),

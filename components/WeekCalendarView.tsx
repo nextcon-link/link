@@ -623,7 +623,7 @@ function formatHourLabel(hour: number) {
 }
 
 function getEventFill(color: string) {
-  return color || "#9FF4E2";
+  return color || "#DC143C";
 }
 
 const styles = StyleSheet.create({

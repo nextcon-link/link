@@ -23,6 +23,7 @@ import {
 } from "@/utils/labelService";
 
 const PRESET_COLORS = [
+  "#DC143C", // 크림슨
   "#4A90E2", // 파랑
   "#E24A4A", // 빨강
   "#4AE27A", // 초록
