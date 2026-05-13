@@ -1,5 +1,6 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, Stack } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -23,13 +24,12 @@ import {
 } from "@/utils/labelService";
 
 const PRESET_COLORS = [
-  "#DC143C", // 크림슨
-  "#4A90E2", // 파랑
-  "#E24A4A", // 빨강
-  "#4AE27A", // 초록
-  "#E2C74A", // 노랑
-  "#9B4AE2", // 보라
-  "#E2874A", // 주황
+  "#6C8AE4", // 파랑
+  "#CF554F", // 빨강
+  "#7CDA86", // 초록
+  "#E0CF5B", // 노랑
+  "#8E4EDB", // 보라
+  "#D18A4B", // 주황
 ];
 
 type VisibilityOption = { label: string, visibility: sharingMode }
@@ -44,7 +44,7 @@ function labelStorageText(label: { googleCalendarId: string | null; googleIsRead
   if (label.googleCalendarId) {
     return label.googleIsReadonly ? "Google 읽기전용" : "Google";
   }
-  return "Link";
+  return null;
 }
 
 export default function LabelsScreen() {
@@ -55,6 +55,7 @@ export default function LabelsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState(PRESET_COLORS[0]);
+  const [editSharingMode, setEditSharingMode] = useState<sharingMode>("none");
 
   const { data: labelList = [] } = useLiveQuery(
     db
@@ -81,12 +82,12 @@ export default function LabelsScreen() {
     setEditingId(id);
     setEditName(currentName);
     setEditColor(currentColor);
-    setSharingMode(currentSharingMode);
+    setEditSharingMode(currentSharingMode);
   };
 
   const handleUpdate = async () => {
     if (!editingId || !editName.trim()) return;
-    await updateLabel(editingId, { name: editName, color: editColor, sharingMode: sharingMode });
+    await updateLabel(editingId, { name: editName, color: editColor, sharingMode: editSharingMode });
     setEditingId(null);
   };
 
@@ -99,145 +100,165 @@ export default function LabelsScreen() {
     <>
       <Stack.Screen options={{ title: "라벨 관리" }} />
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>라벨 관리</Text>
-      <Pressable
-        style={styles.googleButton}
-        onPress={() => router.push("/google")}
-      >
-        <Text style={styles.googleButtonText}>Google Calendar 연동</Text>
-      </Pressable>
+      <View style={styles.content}>
+        <Text style={styles.title}>라벨 관리</Text>
+        <Pressable
+          style={styles.googleButton}
+          onPress={() => router.push("/google")}
+        >
+          <Text style={styles.googleButtonText}>Google Calendar 연동</Text>
+        </Pressable>
 
-      {/* ── 라벨 추가 폼 ───────────────────────────────── */}
-      <Text style={styles.sectionLabel}>새 라벨</Text>
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        placeholder="예: 수업, 개인, 동아리"
-        placeholderTextColor="#999"
-      />
-      <Text style={styles.sectionLabel}>색상 선택</Text>
-      <View style={styles.colorRow}>
-        {PRESET_COLORS.map((c) => (
-          <Pressable
-            key={c}
-            style={[
-              styles.colorSwatch,
-              { backgroundColor: c },
-              color === c && styles.colorSwatchSelected,
-            ]}
-            onPress={() => setColor(c)}
-          />
-        ))}
-      </View>
-      <Text style={styles.sectionLabel}>노출도 설정</Text>
-      <View style={styles.row}>
-        {VISIBILITY_LEVEL.map((opt) => {
-          const selected = sharingMode === opt.visibility;
-          return (
+        {/* ── 라벨 추가 폼 ───────────────────────────────── */}
+        <Text style={styles.sectionLabel}>새 라벨</Text>
+        <TextInput
+          style={styles.input}
+          value={name}
+          onChangeText={setName}
+          placeholder="예: 수업, 개인, 동아리"
+          placeholderTextColor="#999"
+        />
+        <Text style={styles.sectionLabel}>색상 선택</Text>
+        <View style={styles.colorRow}>
+          {PRESET_COLORS.map((c) => (
             <Pressable
-              key={opt.label}
-              style={[styles.chip, selected && styles.chipSelected]}
-              onPress={() => setSharingMode(opt.visibility)}
-            >
-              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <Pressable style={styles.createButton} onPress={handleCreate}>
-        <Text style={styles.createButtonText}>라벨 만들기</Text>
-      </Pressable>
-
-      {/* ── 라벨 목록 ──────────────────────────────────── */}
-      <Text style={styles.sectionTitle}>내 라벨</Text>
-
-      {labelList.map((lbl) =>
-        editingId === lbl.id ? (
-          // 편집 모드
-          <View key={lbl.id} style={styles.labelItem}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 8 }]}
-              value={editName}
-              onChangeText={setEditName}
+              key={c}
+              accessibilityLabel={`${c} 색상 선택`}
+              style={[
+                styles.colorSwatch,
+                { backgroundColor: c },
+                color === c && styles.colorSwatchSelected,
+              ]}
+              onPress={() => setColor(c)}
             />
-            <View style={styles.colorRow}>
-              {PRESET_COLORS.map((c) => (
-                <Pressable
-                  key={c}
-                  style={[
-                    styles.colorSwatch,
-                    { backgroundColor: c },
-                    editColor === c && styles.colorSwatchSelected,
-                  ]}
-                  onPress={() => setEditColor(c)}
-                />
-              ))}
-            </View>
-            <View style={styles.row}>
-              {VISIBILITY_LEVEL.map((opt) => {
-                const selected = sharingMode === opt.visibility;
-                return (
+          ))}
+        </View>
+        <Text style={styles.sectionLabel}>노출도 설정</Text>
+        <View style={styles.row}>
+          {VISIBILITY_LEVEL.map((opt) => {
+            const selected = sharingMode === opt.visibility;
+            return (
+              <Pressable
+                key={opt.label}
+                style={[styles.chip, selected && styles.chipSelected]}
+                onPress={() => setSharingMode(opt.visibility)}
+              >
+                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable style={styles.createButton} onPress={handleCreate}>
+          <Text style={styles.createButtonText}>라벨 만들기</Text>
+        </Pressable>
+
+        {/* ── 라벨 목록 ──────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>내 라벨</Text>
+
+        {labelList.map((lbl) =>
+          editingId === lbl.id ? (
+            // 편집 모드
+            <View key={lbl.id} style={[styles.labelItem, styles.editingItem]}>
+              <TextInput
+                style={[styles.input, styles.editInput]}
+                value={editName}
+                onChangeText={setEditName}
+              />
+              <View style={styles.colorRow}>
+                {PRESET_COLORS.map((c) => (
                   <Pressable
-                    key={opt.label}
-                    style={[styles.chip, selected && styles.chipSelected]}
-                    onPress={() => setSharingMode(opt.visibility)}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                    key={c}
+                    accessibilityLabel={`${c} 색상 선택`}
+                    style={[
+                      styles.colorSwatch,
+                      { backgroundColor: c },
+                      editColor === c && styles.colorSwatchSelected,
+                    ]}
+                    onPress={() => setEditColor(c)}
+                  />
+                ))}
+              </View>
+              <View style={styles.row}>
+                {VISIBILITY_LEVEL.map((opt) => {
+                  const selected = editSharingMode === opt.visibility;
+                  return (
+                    <Pressable
+                      key={opt.label}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => setEditSharingMode(opt.visibility)}
+                    >
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.editActions}>
+                <Pressable style={styles.saveEditButton} onPress={handleUpdate}>
+                  <Text style={styles.saveEditText}>저장</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.cancelButton}
+                  onPress={() => setEditingId(null)}
+                >
+                  <Text style={styles.cancelText}>취소</Text>
+                </Pressable>
+              </View>
             </View>
-            <View style={styles.editActions}>
-              <Pressable style={styles.saveEditButton} onPress={handleUpdate}>
-                <Text style={styles.saveEditText}>저장</Text>
-              </Pressable>
+          ) : (
+            // 표시 모드
+            <View key={lbl.id} style={styles.labelItem}>
               <Pressable
-                style={styles.cancelButton}
-                onPress={() => setEditingId(null)}
+                accessibilityLabel={lbl.isVisible ? "라벨 숨기기" : "라벨 보이기"}
+                style={styles.iconButton}
+                onPress={() => toggleLabelVisibility(lbl.id)}
               >
-                <Text style={styles.cancelText}>취소</Text>
+                <MaterialCommunityIcons
+                  name={lbl.isVisible ? "eye-outline" : "eye-off-outline"}
+                  size={22}
+                  color={lbl.isVisible ? "#171717" : "#9A9A9A"}
+                />
               </Pressable>
+              <View
+                style={[styles.colorDot, { backgroundColor: lbl.color }]}
+              />
+              <Text numberOfLines={1} style={styles.labelName}>{lbl.name}</Text>
+              {labelStorageText(lbl) && (
+                <View style={styles.storageBadge}>
+                  <Text style={styles.storageBadgeText}>{labelStorageText(lbl)}</Text>
+                </View>
+              )}
+              <View style={styles.labelActions}>
+                <Pressable
+                  accessibilityLabel="라벨 편집"
+                  style={styles.iconButton}
+                  onPress={() => startEdit(lbl.id, lbl.name, lbl.color, lbl.sharingMode as sharingMode)}
+                >
+                  <MaterialCommunityIcons
+                    name="pencil-outline"
+                    size={22}
+                    color="#171717"
+                  />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="라벨 삭제"
+                  style={[styles.iconButton, styles.dangerIconButton]}
+                  onPress={() => handleDelete(lbl.id)}
+                >
+                  <MaterialCommunityIcons
+                    name="trash-can-outline"
+                    size={24}
+                    color="#FFFFFF"
+                  />
+                </Pressable>
+              </View>
             </View>
-          </View>
-        ) : (
-          // 표시 모드
-          <View key={lbl.id} style={styles.labelItem}>
-            <Pressable
-              style={styles.visibilityBtn}
-              onPress={() => toggleLabelVisibility(lbl.id)}
-            >
-              <Text style={styles.visibilityIcon}>
-                {lbl.isVisible ? "👁" : "🙈"}
-              </Text>
-            </Pressable>
-            <View
-              style={[styles.colorDot, { backgroundColor: lbl.color }]}
-            />
-            <Text style={styles.labelName}>{lbl.name}</Text>
-            <Text style={styles.storageBadge}>{labelStorageText(lbl)}</Text>
-            <View style={styles.labelActions}>
-              <Pressable
-                style={styles.editButton}
-                onPress={() => startEdit(lbl.id, lbl.name, lbl.color, lbl.sharingMode as sharingMode)}
-              >
-                <Text style={styles.editButtonText}>편집</Text>
-              </Pressable>
-              <Pressable
-                style={styles.deleteButton}
-                onPress={() => handleDelete(lbl.id)}
-              >
-                <Text style={styles.deleteButtonText}>삭제</Text>
-              </Pressable>
-            </View>
-          </View>
-        ),
-      )}
-
+          ),
+        )}
+      </View>
     </ScrollView>
     </>
   );
@@ -247,18 +268,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  content: {
     padding: 20,
     paddingTop: 60,
+    paddingBottom: 36,
   },
   title: {
     fontSize: 26,
-    fontWeight: "bold",
+    fontWeight: "800",
     color: "#111",
-    marginBottom: 20,
+    marginBottom: 22,
   },
   sectionLabel: {
     fontSize: 15,
-    fontWeight: "bold",
+    fontWeight: "800",
     color: "#333",
     marginTop: 16,
     marginBottom: 8,
@@ -267,28 +291,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#111",
     borderRadius: 10,
-    marginBottom: 10,
-    padding: 13,
+    justifyContent: "center",
+    marginBottom: 14,
+    minHeight: 54,
+    paddingHorizontal: 16,
   },
   googleButtonText: {
     color: "#FFF",
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
   },
   sectionTitle: {
     marginTop: 30,
-    marginBottom: 10,
+    marginBottom: 12,
     fontSize: 18,
-    fontWeight: "bold",
+    fontWeight: "800",
     color: "#111",
   },
   input: {
     borderWidth: 1,
-    borderColor: "#CCC",
+    borderColor: "#D7D7D7",
     borderRadius: 10,
     padding: 12,
     fontSize: 16,
     color: "#111",
+    backgroundColor: "#FFF",
+  },
+  editInput: {
+    width: "100%",
   },
   colorRow: {
     flexDirection: "row",
@@ -296,9 +326,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   colorSwatch: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   colorSwatchSelected: {
     borderWidth: 3,
@@ -306,31 +336,38 @@ const styles = StyleSheet.create({
   },
   createButton: {
     backgroundColor: "#111",
-    padding: 14,
+    minHeight: 54,
     borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
     marginTop: 4,
   },
   createButtonText: {
     color: "#FFF",
-    fontWeight: "bold",
+    fontSize: 15,
+    fontWeight: "800",
   },
   labelItem: {
     borderWidth: 1,
-    borderColor: "#DDD",
+    borderColor: "#E5E5E5",
     borderRadius: 10,
-    padding: 12,
+    backgroundColor: "#FFF",
+    minHeight: 64,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  visibilityBtn: {
-    padding: 2,
-  },
-  visibilityIcon: {
-    fontSize: 18,
+  editingItem: {
+    alignItems: "stretch",
+    flexDirection: "column",
   },
   colorDot: {
     width: 14,
@@ -340,42 +377,35 @@ const styles = StyleSheet.create({
   labelName: {
     flex: 1,
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "800",
     color: "#111",
   },
   labelActions: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
+  },
+  iconButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 17,
+  },
+  dangerIconButton: {
+    backgroundColor: "#CF554F",
   },
   storageBadge: {
     borderWidth: 1,
-    borderColor: "#DDD",
+    borderColor: "#DCDCDC",
     borderRadius: 999,
-    color: "#555",
-    fontSize: 11,
-    fontWeight: "700",
     paddingHorizontal: 8,
     paddingVertical: 3,
+    backgroundColor: "#FFF",
   },
-  editButton: {
-    backgroundColor: "#555",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  editButtonText: {
-    color: "#FFF",
-    fontSize: 13,
-  },
-  deleteButton: {
-    backgroundColor: "#D9534F",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  deleteButtonText: {
-    color: "#FFF",
-    fontSize: 13,
+  storageBadgeText: {
+    color: "#555",
+    fontSize: 11,
+    fontWeight: "800",
   },
   editActions: {
     flexDirection: "row",
@@ -384,7 +414,8 @@ const styles = StyleSheet.create({
   },
   saveEditButton: {
     backgroundColor: "#111",
-    paddingVertical: 8,
+    minHeight: 42,
+    justifyContent: "center",
     paddingHorizontal: 16,
     borderRadius: 8,
   },
@@ -393,8 +424,9 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   cancelButton: {
-    backgroundColor: "#999",
-    paddingVertical: 8,
+    backgroundColor: "#A0A0A0",
+    minHeight: 42,
+    justifyContent: "center",
     paddingHorizontal: 16,
     borderRadius: 8,
   },
@@ -406,7 +438,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
-    chip: {
+  chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -427,6 +459,7 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 14,
     color: "#333",
+    fontWeight: "700",
   },
   chipTextSelected: {
     color: "#FFF",
