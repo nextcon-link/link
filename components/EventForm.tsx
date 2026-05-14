@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { db } from "@/database";
 import type { Label } from "@/database/schema";
@@ -63,6 +64,7 @@ export default function EventForm({
   onSubmit,
   onDelete,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const [title, setTitle] = useState(initialValue.title);
   const [selectedDate, setSelectedDate] = useState(initialValue.date);
@@ -454,7 +456,7 @@ export default function EventForm({
           )}
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: 16 + insets.bottom }]}>
           <Pressable style={styles.saveButton} onPress={handleSubmit}>
             <Text style={styles.saveButtonText}>{submitLabel}</Text>
           </Pressable>

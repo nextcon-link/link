@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import WeekCalendarView, {
   type WeekCalendarEvent,
@@ -191,6 +192,7 @@ export default function SharedBundleViewer({
   onNextWeek,
   onOpenCalendar,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(
     defaultSelectedSourceIds,
   );
@@ -360,7 +362,7 @@ export default function SharedBundleViewer({
         />
       </View>
 
-      <View style={styles.actionDock}>
+      <View style={[styles.actionDock, { bottom: 58 + insets.bottom }]}>
         {onOpenApp && (
           <Pressable
             style={[styles.actionButton, styles.appButton]}
@@ -782,7 +784,7 @@ export default function SharedBundleViewer({
         onRequestClose={() => setDatePickerTarget(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.datePickerSheet}>
+          <View style={[styles.datePickerSheet, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>
                 {datePickerTarget === "start" ? "시작일 선택" : "종료일 선택"}

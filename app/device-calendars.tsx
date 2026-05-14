@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   getDeviceCalendarOptions,
@@ -42,6 +43,7 @@ function disabledText(reason: DeviceCalendarOption["disabledReason"]) {
 }
 
 export default function DeviceCalendarsScreen() {
+  const insets = useSafeAreaInsets();
   const [calendars, setCalendars] = useState<DeviceCalendarOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +78,13 @@ export default function DeviceCalendarsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "기기 캘린더 라벨" }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 20 + insets.bottom },
+        ]}
+      >
         <Text style={styles.title}>기기 캘린더 라벨</Text>
         <Text style={styles.subtitle}>
           iCloud, Samsung, Google 등 휴대폰에 등록된 캘린더를 라벨처럼 표시합니다.

@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   connectGoogleCalendar,
@@ -36,6 +37,7 @@ function formatStatusDate(value: string | null): string {
 }
 
 export default function GoogleCalendarScreen() {
+  const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<GoogleConnectionStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -147,7 +149,13 @@ export default function GoogleCalendarScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Google Calendar" }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 20 + insets.bottom },
+        ]}
+      >
         <Text style={styles.title}>Google Calendar</Text>
         <Text style={styles.subtitle}>
           Google의 캘린더는 Link의 라벨로 가져오고, 앱에서 만든 라벨은 Google 캘린더로 생성됩니다.

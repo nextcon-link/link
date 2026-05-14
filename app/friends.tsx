@@ -173,7 +173,8 @@ export default function FriendsScreen() {
     user?.email?.split("@")[0] ||
     "내 계정";
   const myUsername = myProfile?.username || user?.user_metadata?.username || "";
-  const bottomSheetPadding = Math.max(insets.bottom, 18);
+  const screenBottomPadding = 120 + insets.bottom;
+  const bottomSheetPadding = 18 + insets.bottom;
 
   const refreshFriends = useCallback(async () => {
     setIsLoading(true);
@@ -417,7 +418,10 @@ export default function FriendsScreen() {
     <>
       <Stack.Screen options={{ title: "친구" }} />
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: screenBottomPadding },
+        ]}
         style={styles.container}
       >
         <View style={styles.headerRow}>
@@ -541,7 +545,7 @@ export default function FriendsScreen() {
             <View style={styles.sheetHeader}>
               <View style={styles.sheetTitleBox}>
                 <Text style={styles.sheetTitle}>
-                  {settingsFriend ? getProfileName(settingsFriend) : "친구"} 공유
+                  {settingsFriend ? getProfileName(settingsFriend) : "친구"}에게 공유
                 </Text>
                 <Text style={styles.sheetSubtitle}>내 일정을 친구에게 보여줍니다.</Text>
               </View>
@@ -705,7 +709,7 @@ export default function FriendsScreen() {
             <View style={styles.sheetHeader}>
               <View style={styles.sheetTitleBox}>
                 <Text style={styles.sheetTitle}>
-                  {selectedFriend ? getProfileName(selectedFriend) : "친구"} 일정
+                  {selectedFriend ? getProfileName(selectedFriend) : "친구"}의 일정
                 </Text>
                 <Text style={styles.sheetSubtitle}>
                   공유 허용된 일정만 표시됩니다.
@@ -768,7 +772,7 @@ export default function FriendsScreen() {
               {isSavingBundle ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.saveBundleButtonText}>공유탭에 일정 덩어리 추가</Text>
+                <Text style={styles.saveBundleButtonText}>공유 탭에서 보기</Text>
               )}
             </Pressable>
           </View>

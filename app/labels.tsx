@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { db } from "@/database";
 import { labels } from "@/database/schema";
@@ -48,6 +49,7 @@ function labelStorageText(label: { googleCalendarId: string | null; googleIsRead
 }
 
 export default function LabelsScreen() {
+  const insets = useSafeAreaInsets();
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const [name, setName] = useState("");
   const [color, setColor] = useState(PRESET_COLORS[0]);
@@ -100,7 +102,7 @@ export default function LabelsScreen() {
     <>
       <Stack.Screen options={{ title: "라벨 관리" }} />
     <ScrollView style={styles.container}>
-      <View style={styles.content}>
+      <View style={[styles.content, { paddingBottom: 36 + insets.bottom }]}>
         <Text style={styles.title}>라벨 관리</Text>
         <Pressable
           style={styles.googleButton}
