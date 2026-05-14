@@ -32,6 +32,12 @@ export const supabase = {
   rpc: notAvailableOnWeb,
 };
 
+export async function getPersistedAuthSession() {
+  return null;
+}
+
+export async function clearPersistedAuthSession(): Promise<void> {}
+
 export type RemoteLabel = {
   id: string;
   user_id: string;

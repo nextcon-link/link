@@ -6,7 +6,11 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/database";
 import { events, labels } from "@/database/schema";
-import { supabase } from "@/services/supabaseApi";
+import {
+  clearPersistedAuthSession,
+  getPersistedAuthSession,
+  supabase,
+} from "@/services/supabaseApi";
 
 const DEVICE_USER_KEY = "device_user_id";
 const ADOPTED_USER_KEY = "adopted_auth_user_id";
@@ -103,16 +107,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (get().isInitialized) return;
 
     set({ isLoading: true });
-    const { data, error } = await supabase.auth.getSession();
-    if (error) {
-      set({
-        session: null,
-        user: null,
-        isLoading: false,
-        isInitialized: true,
-      });
+    const persistedSession = await getPersistedAuthSession();
+
+    if (persistedSession) {
+      await applySession(persistedSession);
+      supabase.auth
+        .getSession()
+        .then(({ data, error }) => {
+          if (!error && data.session) {
+            applySession(data.session);
+          }
+        })
+        .catch(() => null);
     } else {
-      await applySession(data.session);
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        await applySession(data.session);
+      } catch {
+        await applySession(null);
+      }
     }
 
     if (!unsubscribeAuth) {
@@ -167,7 +181,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     set({ isLoading: true });
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" }).catch(() => null);
+    await clearPersistedAuthSession();
     set({
       session: null,
       user: null,
