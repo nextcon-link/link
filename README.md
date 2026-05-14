@@ -29,7 +29,7 @@
 
 1. eas-cli 설치
 ```
-npm install eas-cli
+npm install -g eas-cli
 ```
 
 2. expo 로그인
