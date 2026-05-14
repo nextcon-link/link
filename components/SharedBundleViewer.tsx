@@ -1,9 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Modal,
+  PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import WeekCalendarView, {
   type WeekCalendarEvent,
@@ -28,7 +33,7 @@ export type SharedBundleSource = {
 
 export type GeneratedShareQr = {
   url: string;
-  qrMatrix: boolean[][];
+  qrImageUri: string;
   events: {
     title: string;
     startTime: number;
@@ -88,6 +93,7 @@ type Props = {
   onCloseQr?: () => void;
   onDeleteSource?: (sourceId: string) => void;
   onChangeSourceColor?: (sourceId: string, color: string) => void | Promise<void>;
+  onOpenApp?: () => void;
   onPreviousWeek?: () => void;
   onNextWeek?: () => void;
   onToday?: () => void;
@@ -97,7 +103,7 @@ type Props = {
 type DatePickerTarget = "start" | "end" | null;
 
 const BUNDLE_COLORS = [
-  "#9FF4E2",
+  "#DC143C",
   "#6C8AE4",
   "#E27A5F",
   "#3BAF7A",
@@ -118,25 +124,13 @@ const EXPIRY_OPTIONS: { value: ShareExpiryPreset; label: string }[] = [
   { value: "14", label: "14일" },
   { value: "custom", label: "기타" },
 ];
+const SOURCE_DRAWER_HEIGHT = 430;
+const SOURCE_DRAWER_HANDLE_HEIGHT = 58;
+const SOURCE_DRAWER_CLOSED_Y =
+  SOURCE_DRAWER_HEIGHT - SOURCE_DRAWER_HANDLE_HEIGHT;
 
-function QrMatrix({ matrix }: { matrix: boolean[][] }) {
-  return (
-    <View style={styles.qrMatrix}>
-      {matrix.map((row, rowIndex) => (
-        <View key={rowIndex} style={styles.qrRow}>
-          {row.map((cell, colIndex) => (
-            <View
-              key={`${rowIndex}:${colIndex}`}
-              style={[
-                styles.qrCell,
-                cell ? styles.qrCellDark : styles.qrCellLight,
-              ]}
-            />
-          ))}
-        </View>
-      ))}
-    </View>
-  );
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function formatExpiry(expiresAt: number | null | undefined) {
@@ -174,23 +168,76 @@ export default function SharedBundleViewer({
   onCloseQr,
   onDeleteSource,
   onChangeSourceColor,
+  onOpenApp,
   onPreviousWeek,
   onNextWeek,
-  onToday,
   onOpenCalendar,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(
     defaultSelectedSourceIds,
   );
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isQrVisible, setIsQrVisible] = useState(false);
   const [datePickerTarget, setDatePickerTarget] =
     useState<DatePickerTarget>(null);
+  const drawerTranslateY = useRef(
+    new Animated.Value(SOURCE_DRAWER_CLOSED_Y),
+  ).current;
+  const drawerYRef = useRef(SOURCE_DRAWER_CLOSED_Y);
+  const drawerDragStartYRef = useRef(SOURCE_DRAWER_CLOSED_Y);
+
+  const animateSourceDrawer = (open: boolean) => {
+    Animated.spring(drawerTranslateY, {
+      toValue: open ? 0 : SOURCE_DRAWER_CLOSED_Y,
+      useNativeDriver: true,
+      speed: 18,
+      bounciness: 4,
+    }).start();
+  };
+
+  const listSwipeResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+
+        return absDy > 8 && absDy > absDx * 1.15;
+      },
+      onPanResponderGrant: () => {
+        drawerDragStartYRef.current = drawerYRef.current;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const nextY = clamp(
+          drawerDragStartYRef.current + gestureState.dy,
+          0,
+          SOURCE_DRAWER_CLOSED_Y,
+        );
+        drawerTranslateY.setValue(nextY);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const shouldOpen =
+          drawerYRef.current < SOURCE_DRAWER_CLOSED_Y * 0.58 ||
+          gestureState.vy < -0.45;
+        const shouldClose = gestureState.vy > 0.45;
+
+        animateSourceDrawer(shouldClose ? false : shouldOpen);
+      },
+    }),
+  ).current;
 
   useEffect(() => {
     if (generatedQr) setIsQrVisible(true);
   }, [generatedQr]);
+
+  useEffect(() => {
+    const id = drawerTranslateY.addListener(({ value }) => {
+      drawerYRef.current = value;
+    });
+
+    return () => drawerTranslateY.removeListener(id);
+  }, [drawerTranslateY]);
 
   const calendarEvents = useMemo(() => {
     if (selectedSourceIds.length === 0) return [];
@@ -242,45 +289,47 @@ export default function SharedBundleViewer({
     onCloseQr?.();
   };
 
+  const deleteSource = (source: SharedBundleSource) => {
+    setSelectedSourceIds((current) =>
+      current.filter((sourceId) => sourceId !== source.id),
+    );
+    onDeleteSource?.(source.id);
+  };
+
   const confirmDelete = (source: SharedBundleSource) => {
+    if (Platform.OS === "web") {
+      if (window.confirm(`${source.title}을 삭제할까요?`)) {
+        deleteSource(source);
+      }
+      return;
+    }
+
     Alert.alert("일정 덩어리 삭제", `${source.title}을 삭제할까요?`, [
       { text: "취소", style: "cancel" },
       {
         text: "삭제",
         style: "destructive",
-        onPress: () => {
-          setSelectedSourceIds((current) =>
-            current.filter((sourceId) => sourceId !== source.id),
-          );
-          onDeleteSource?.(source.id);
-        },
+        onPress: () => deleteSource(source),
       },
     ]);
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.weekBar}>
-        <Pressable style={styles.weekButton} onPress={onPreviousWeek}>
-          <Text style={styles.weekButtonText}>이전</Text>
-        </Pressable>
-        <View style={styles.weekCenterActions}>
-          {onOpenCalendar && (
-            <Pressable
-              accessibilityLabel="달력 열기"
-              style={styles.calendarButton}
-              onPress={onOpenCalendar}
-            >
-              <MaterialCommunityIcons name="calendar-month" size={22} color="#111" />
-            </Pressable>
-          )}
-          <Pressable style={styles.todayButton} onPress={onToday}>
-            <Text style={styles.todayButtonText}>오늘</Text>
+      <View style={styles.topBar} pointerEvents="box-none">
+        {onOpenCalendar && (
+          <Pressable
+            accessibilityLabel="월간 캘린더"
+            style={styles.topIconButton}
+            onPress={onOpenCalendar}
+          >
+            <MaterialCommunityIcons
+              name="calendar-month-outline"
+              size={29}
+              color="#1B1B20"
+            />
           </Pressable>
-        </View>
-        <Pressable style={styles.weekButton} onPress={onNextWeek}>
-          <Text style={styles.weekButtonText}>다음</Text>
-        </Pressable>
+        )}
       </View>
 
       <View style={styles.calendarSpacer}>
@@ -294,7 +343,16 @@ export default function SharedBundleViewer({
         />
       </View>
 
-      <View style={styles.actionDock}>
+      <View style={[styles.actionDock, { bottom: 58 + insets.bottom }]}>
+        {onOpenApp && (
+          <Pressable
+            style={[styles.actionButton, styles.appButton]}
+            onPress={onOpenApp}
+          >
+            <Text style={styles.appButtonText}>앱에서 열기</Text>
+          </Pressable>
+        )}
+
         {onCreateQr && shareSettings && (
           <Pressable
             style={[styles.actionButton, styles.qrButton]}
@@ -307,101 +365,133 @@ export default function SharedBundleViewer({
             {isCreatingQr ? (
               <ActivityIndicator color="#111" />
             ) : (
-              <Text style={styles.qrButtonText}>QR 공유</Text>
+              <>
+                <MaterialCommunityIcons
+                  name="qrcode"
+                  size={23}
+                  color="#111"
+                />
+                <MaterialCommunityIcons
+                  name="share-variant"
+                  size={22}
+                  color="#111"
+                />
+              </>
             )}
           </Pressable>
         )}
-
-        <Pressable
-          style={[styles.actionButton, styles.pickerButton]}
-          onPress={() => setIsPickerOpen(true)}
-        >
-          <Text style={styles.pickerButtonText}>일정 추가</Text>
-          <Text style={styles.pickerCountText}>{selectedSourceIds.length}</Text>
-        </Pressable>
       </View>
 
-      <Modal
-        animationType="slide"
-        transparent
-        visible={isPickerOpen}
-        onRequestClose={() => setIsPickerOpen(false)}
+      <Animated.View
+        accessibilityLabel="표시할 일정 목록"
+        style={[
+          styles.sourceDrawer,
+          { transform: [{ translateY: drawerTranslateY }] },
+        ]}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.sheet}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>일정 덩어리</Text>
-              <Pressable onPress={() => setIsPickerOpen(false)}>
-                <Text style={styles.closeText}>닫기</Text>
-              </Pressable>
+          <View
+            style={styles.sourceDrawerHandle}
+            {...listSwipeResponder.panHandlers}
+          >
+            <View style={styles.sourceDrawerGrip} />
+            <View style={styles.sourceDrawerLabelRow}>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.86}
+                numberOfLines={1}
+                style={styles.sourceDrawerLabel}
+              >
+                표시할 일정 추가
+              </Text>
+              <Text style={styles.sourceDrawerCount}>
+                {selectedSourceIds.length}
+              </Text>
             </View>
-
-            <ScrollView>
-              {sources.map((source) => {
-                const selected = selectedSourceIds.includes(source.id);
-                return (
-                  <Pressable
-                    key={source.id}
-                    style={styles.sourceRow}
-                    onPress={() => toggleSource(source.id)}
-                  >
-                    <View
-                      style={[
-                        styles.sourceColor,
-                        { backgroundColor: source.color },
-                      ]}
-                    />
-                    <View style={styles.sourceTextBox}>
-                      <Text style={styles.sourceTitle}>{source.title}</Text>
-                      <Text style={styles.sourceSubtitle}>
-                        {source.subtitle}
-                      </Text>
-                      {onChangeSourceColor && source.canChangeColor !== false && (
-                        <View style={styles.bundleColorRow}>
-                          {BUNDLE_COLORS.map((color) => {
-                            const isSelected = source.color === color;
-
-                            return (
-                              <Pressable
-                                key={`${source.id}:${color}`}
-                                style={[
-                                  styles.bundleColorSwatch,
-                                  { backgroundColor: color },
-                                  isSelected && styles.bundleColorSwatchSelected,
-                                ]}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  onChangeSourceColor(source.id, color);
-                                }}
-                              />
-                            );
-                          })}
-                        </View>
-                      )}
-                    </View>
-                    {source.canDelete && (
-                      <Pressable
-                        style={styles.deleteButton}
-                        onPress={() => confirmDelete(source)}
-                      >
-                        <Text style={styles.deleteButtonText}>삭제</Text>
-                      </Pressable>
-                    )}
-                    <View
-                      style={[
-                        styles.checkbox,
-                        selected && styles.checkboxSelected,
-                      ]}
-                    >
-                      {selected && <Text style={styles.checkText}>✓</Text>}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
           </View>
-        </View>
-      </Modal>
+
+          <View style={styles.sourceDrawerHeader}>
+            <Text style={styles.sheetTitle}>일정 덩어리</Text>
+            <Pressable
+              accessibilityLabel="목록 내리기"
+              style={styles.drawerCloseButton}
+              onPress={() => animateSourceDrawer(false)}
+            >
+              <MaterialCommunityIcons
+                name="chevron-down"
+                size={28}
+                color="#111"
+              />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            style={styles.sourceDrawerList}
+            contentContainerStyle={styles.sourceDrawerListContent}
+          >
+            {sources.map((source) => {
+              const selected = selectedSourceIds.includes(source.id);
+              return (
+                <Pressable
+                  key={source.id}
+                  style={styles.sourceRow}
+                  onPress={() => toggleSource(source.id)}
+                >
+                  <View
+                    style={[
+                      styles.sourceColor,
+                      { backgroundColor: source.color },
+                    ]}
+                  />
+                  <View style={styles.sourceTextBox}>
+                    <Text style={styles.sourceTitle}>{source.title}</Text>
+                    <Text style={styles.sourceSubtitle}>{source.subtitle}</Text>
+                    {onChangeSourceColor && source.canChangeColor !== false && (
+                      <View style={styles.bundleColorRow}>
+                        {BUNDLE_COLORS.map((color) => {
+                          const isSelected = source.color === color;
+
+                          return (
+                            <Pressable
+                              key={`${source.id}:${color}`}
+                              style={[
+                                styles.bundleColorSwatch,
+                                { backgroundColor: color },
+                                isSelected && styles.bundleColorSwatchSelected,
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                onChangeSourceColor(source.id, color);
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                  {source.canDelete && (
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        confirmDelete(source);
+                      }}
+                    >
+                      <Text style={styles.deleteButtonText}>삭제</Text>
+                    </Pressable>
+                  )}
+                  <View
+                    style={[
+                      styles.checkbox,
+                      selected && styles.checkboxSelected,
+                    ]}
+                  >
+                    {selected && <Text style={styles.checkText}>✓</Text>}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+      </Animated.View>
 
       <Modal
         animationType="fade"
@@ -414,7 +504,7 @@ export default function SharedBundleViewer({
             <View style={styles.sheetHeader}>
               <View>
                 <Text style={styles.sheetTitle}>
-                  {isQrVisible ? "딥링크 QR" : "공유 미리보기"}
+                  {isQrVisible ? "QR 코드 생성됨" : "공유 미리보기"}
                 </Text>
                 <Text style={styles.qrSubtitle}>
                   {isQrVisible
@@ -657,7 +747,11 @@ export default function SharedBundleViewer({
 
             {generatedQr && isQrVisible && (
               <>
-                <QrMatrix matrix={generatedQr.qrMatrix} />
+                <Image
+                  source={{ uri: generatedQr.qrImageUri }}
+                  style={styles.qrImage}
+                  contentFit="contain"
+                />
                 <Text style={styles.qrTitle}>{generatedQr.title}</Text>
                 <Text style={styles.qrSubtitle}>
                   {generatedQr.eventCount}개 일정 포함
@@ -675,7 +769,7 @@ export default function SharedBundleViewer({
         onRequestClose={() => setDatePickerTarget(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.datePickerSheet}>
+          <View style={[styles.datePickerSheet, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>
                 {datePickerTarget === "start" ? "시작일 선택" : "종료일 선택"}
@@ -725,7 +819,7 @@ export default function SharedBundleViewer({
                 textSectionTitleColor: "#111111",
                 monthTextColor: "#111111",
                 arrowColor: "#111111",
-                todayTextColor: "#4A90E2",
+                todayTextColor: "#DC143C",
                 dayTextColor: "#111111",
               }}
             />
@@ -741,65 +835,33 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  weekBar: {
+  topBar: {
     position: "absolute",
-    top: 44,
-    left: 16,
-    right: 16,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 116,
     zIndex: 5,
     flexDirection: "row",
-    justifyContent: "space-between",
-    pointerEvents: "box-none",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    paddingRight: 28,
+    paddingBottom: 20,
   },
   calendarSpacer: {
     flex: 1,
-    paddingTop: 96,
+    paddingTop: 116,
   },
-  weekButton: {
-    minWidth: 54,
-    minHeight: 34,
+  topIconButton: {
+    width: 31,
+    height: 31,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: "#F2F2F2",
-    paddingHorizontal: 12,
-  },
-  weekButtonText: {
-    color: "#222",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  weekCenterActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  calendarButton: {
-    width: 36,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: "#F2F2F2",
-  },
-  todayButton: {
-    minWidth: 58,
-    minHeight: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: "#111",
-    paddingHorizontal: 14,
-  },
-  todayButtonText: {
-    color: "#FFF",
-    fontSize: 13,
-    fontWeight: "800",
   },
   actionDock: {
     position: "absolute",
     right: 20,
-    bottom: 30,
+    bottom: 58,
     flexDirection: "row",
     gap: 10,
   },
@@ -812,33 +874,95 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   qrButton: {
-    minWidth: 86,
+    minWidth: 92,
+    gap: 10,
     backgroundColor: "#F5D76E",
   },
-  qrButtonText: {
-    color: "#111",
+  appButton: {
+    minWidth: 96,
+    backgroundColor: "#E8F0FF",
+  },
+  appButtonText: {
+    color: "#1C3F8C",
     fontSize: 15,
     fontWeight: "800",
   },
-  pickerButton: {
+  sourceDrawer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: SOURCE_DRAWER_HEIGHT,
+    overflow: "hidden",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  sourceDrawerHandle: {
+    height: SOURCE_DRAWER_HANDLE_HEIGHT,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingTop: 8,
+    paddingHorizontal: 18,
+  },
+  sourceDrawerGrip: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#CFCFCF",
+    marginBottom: 6,
+  },
+  sourceDrawerLabelRow: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
-    backgroundColor: "#111",
   },
-  pickerButtonText: {
-    color: "#FFF",
-    fontSize: 15,
-    fontWeight: "700",
+  sourceDrawerLabel: {
+    color: "#111",
+    fontSize: 14,
+    fontWeight: "800",
   },
-  pickerCountText: {
+  sourceDrawerCount: {
     minWidth: 22,
     overflow: "hidden",
     borderRadius: 11,
-    backgroundColor: "#FFF",
-    color: "#111",
+    backgroundColor: "#111",
+    color: "#FFF",
     fontSize: 12,
     fontWeight: "800",
     textAlign: "center",
     paddingVertical: 2,
+  },
+  sourceDrawerHeader: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEEEEE",
+    paddingHorizontal: 20,
+  },
+  drawerCloseButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourceDrawerList: {
+    flex: 1,
+  },
+  sourceDrawerListContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
   },
   modalBackdrop: {
     flex: 1,
@@ -1151,22 +1275,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  qrMatrix: {
+  qrImage: {
     width: "100%",
     aspectRatio: 1,
-    backgroundColor: "#FFF",
-  },
-  qrRow: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  qrCell: {
-    flex: 1,
-  },
-  qrCellDark: {
-    backgroundColor: "#000",
-  },
-  qrCellLight: {
     backgroundColor: "#FFF",
   },
   qrTitle: {

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import dayjs from "dayjs";
@@ -27,6 +27,16 @@ import {
   deleteSharedBundle,
   updateSharedBundleColor,
 } from "@/services/sharedBundleService";
+import {
+  getDeviceCalendarOptions,
+  getMergedEvents,
+  type MergedEvent,
+} from "@/services/deviceSync";
+import {
+  isDeviceCalendarLabEnabled,
+  type DeviceCalendarOption,
+} from "@/services/deviceCalendarSettings";
+import type { SharedBundlePayloadEvent } from "@/services/sharedBundlePayload";
 import { expandEventOccurrences } from "@/services/recurrence";
 import { allowCalendarEntry } from "@/store/calendarAccess";
 import { useAuthStore } from "@/store/auth";
@@ -40,8 +50,9 @@ import {
 import { sharingMode } from "@/utils/events";
 
 const MY_CALENDAR_ID = "mine";
-const MY_CALENDAR_COLOR = "#9FF4E2";
+const MY_CALENDAR_COLOR = "#DC143C";
 const BLIND_TITLE = "블라인드";
+const DEVICE_LABEL_PREFIX = "device:";
 type ShareVisibility = ShareVisibilityOverride;
 
 type LocalEventRow = {
@@ -234,6 +245,39 @@ function getNextVisibility(visibility: ShareVisibility): ShareVisibility {
   return "visible";
 }
 
+function getDeviceLabelId(calendarId: string) {
+  return `${DEVICE_LABEL_PREFIX}${calendarId}`;
+}
+
+function providerLabel(provider: DeviceCalendarOption["provider"]) {
+  switch (provider) {
+    case "apple":
+      return "Apple";
+    case "google":
+      return "Google";
+    case "samsung":
+      return "Samsung";
+    case "exchange":
+      return "Exchange";
+    case "local":
+      return "기기";
+    default:
+      return "기기";
+  }
+}
+
+function getDevicePreviewTitle(event: MergedEvent, visibility: ShareVisibility) {
+  if (visibility === "visible") return event.title;
+  if (visibility === "blind") return BLIND_TITLE;
+  return "비공개";
+}
+
+function getSharedDeviceTitle(event: MergedEvent, visibility: ShareVisibility) {
+  if (visibility === "visible") return event.title;
+  if (visibility === "blind") return BLIND_TITLE;
+  return null;
+}
+
 export default function SharedScreen() {
   const user = useAuthStore((state) => state.user);
   const userId = user?.id ?? "";
@@ -244,8 +288,14 @@ export default function SharedScreen() {
   const [shareSettings, setShareSettings] = useState<ShareQrSettings>(
     DEFAULT_SHARE_SETTINGS,
   );
+  const [didInitShareTitle, setDidInitShareTitle] = useState(false);
   const [didInitShareLabels, setDidInitShareLabels] = useState(false);
   const [sharePreviewWeekKey, setSharePreviewWeekKey] = useState(weekKey);
+  const [deviceCalendars, setDeviceCalendars] = useState<DeviceCalendarOption[]>([]);
+  const [isDeviceLabEnabled, setIsDeviceLabEnabled] = useState(false);
+  const [didLoadDeviceCalendars, setDidLoadDeviceCalendars] = useState(false);
+  const [weekDeviceEvents, setWeekDeviceEvents] = useState<MergedEvent[]>([]);
+  const [shareDeviceEvents, setShareDeviceEvents] = useState<MergedEvent[]>([]);
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
   const weekStart = dayjs(weekDates[0]).startOf("day").valueOf();
   const weekEnd = dayjs(weekDates[6]).endOf("day").valueOf();
@@ -253,15 +303,17 @@ export default function SharedScreen() {
     () => getShareRange(shareSettings, weekKey),
     [shareSettings, weekKey],
   );
-  const shareSettingsError =
+  const sharePreviewError =
     shareRange.error ??
     getExpiryError(shareSettings) ??
-    (!shareSettings.bundleTitle.trim()
-      ? "일정 덩어리 이름을 입력하세요."
-      : null) ??
     (shareSettings.selectedLabelIds.length === 0 && !shareSettings.includeUnlabeled
       ? "공유할 라벨을 하나 이상 선택하세요."
       : null);
+  const shareSettingsError =
+    (!shareSettings.bundleTitle.trim()
+      ? "일정 덩어리 이름을 입력하세요."
+      : null) ??
+    sharePreviewError;
 
   useEffect(() => {
     seedDemoSharedBundles();
@@ -277,19 +329,61 @@ export default function SharedScreen() {
     cleanupExpiredSharedBundles(userId);
   }, [userId]);
 
+  const refreshDeviceCalendarLab = useCallback(async () => {
+    const enabled = await isDeviceCalendarLabEnabled();
+    setIsDeviceLabEnabled(enabled);
+    setDidLoadDeviceCalendars(true);
+
+    if (!enabled) {
+      setDeviceCalendars([]);
+      setWeekDeviceEvents([]);
+      setShareDeviceEvents([]);
+      setShareSettings((current) => ({
+        ...current,
+        selectedLabelIds: current.selectedLabelIds.filter(
+          (labelId) => !labelId.startsWith(DEVICE_LABEL_PREFIX),
+        ),
+      }));
+      return;
+    }
+
+    const options = await getDeviceCalendarOptions();
+    setDeviceCalendars(options.filter((calendar) => !calendar.disabledReason));
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      refreshDeviceCalendarLab().catch(() => {
+        if (!cancelled) {
+          setDeviceCalendars([]);
+          setDidLoadDeviceCalendars(true);
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [refreshDeviceCalendarLab]),
+  );
+
   useEffect(() => {
     if (shareRange.error) return;
     setSharePreviewWeekKey(getWeekKey(shareRange.startDate));
   }, [shareRange.error, shareRange.startDate]);
 
   useEffect(() => {
-    if (!user || shareSettings.bundleTitle.trim()) return;
+    if (!user || didInitShareTitle) return;
 
     setShareSettings((current) => ({
       ...current,
-      bundleTitle: `${getOwnerName(user)}의 ${weekKey} 일정`,
+      bundleTitle: current.bundleTitle.trim()
+        ? current.bundleTitle
+        : `${getOwnerName(user)}의 ${weekKey} 일정`,
     }));
-  }, [shareSettings.bundleTitle, user, weekKey]);
+    setDidInitShareTitle(true);
+  }, [didInitShareTitle, user, weekKey]);
 
   const { data: bundleList = [] } = useLiveQuery(
     db
@@ -325,16 +419,59 @@ export default function SharedScreen() {
   );
 
   useEffect(() => {
-    if (didInitShareLabels || labelList.length === 0) return;
+    if (didInitShareLabels || !didLoadDeviceCalendars) return;
 
     setShareSettings((current) => ({
       ...current,
-      selectedLabelIds: labelList
-        .filter((label) => label.isVisible)
-        .map((label) => label.id),
+      selectedLabelIds: [
+        ...labelList.filter((label) => label.isVisible).map((label) => label.id),
+        ...deviceCalendars
+          .filter((calendar) => calendar.selected)
+          .map((calendar) => getDeviceLabelId(calendar.id)),
+      ],
     }));
     setDidInitShareLabels(true);
-  }, [didInitShareLabels, labelList]);
+  }, [deviceCalendars, didInitShareLabels, didLoadDeviceCalendars, labelList]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isDeviceLabEnabled) {
+      setWeekDeviceEvents([]);
+      return;
+    }
+
+    getMergedEvents([], weekDates[0], weekDates[6]).then((events) => {
+      if (!cancelled) {
+        setWeekDeviceEvents(events.filter((event) => event.source === "device"));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isDeviceLabEnabled, weekDates]);
+
+  useEffect(() => {
+    if (shareRange.error || !isDeviceLabEnabled) {
+      setShareDeviceEvents([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    getMergedEvents([], new Date(shareRange.start), new Date(shareRange.end)).then(
+      (events) => {
+        if (!cancelled) {
+          setShareDeviceEvents(events.filter((event) => event.source === "device"));
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isDeviceLabEnabled, shareRange.end, shareRange.error, shareRange.start]);
 
   const { data: localRows = [] } = useLiveQuery(
     db
@@ -456,25 +593,44 @@ export default function SharedScreen() {
       layoutGroupId: row.bundle.id,
     }));
 
-    return [...mine, ...shared].sort((a, b) => a.startTime - b.startTime);
-  }, [localRows, sharedRows, weekEnd, weekStart]);
+    const deviceMine: WeekCalendarEvent[] = weekDeviceEvents.map((event) => ({
+      id: `mine:${event.id}`,
+      title: event.title,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      isAllDay: event.isAllDay,
+      color: event.labelColor,
+      source: MY_CALENDAR_ID,
+      editable: false,
+      layoutGroupId: MY_CALENDAR_ID,
+    }));
+
+    return [...mine, ...deviceMine, ...shared].sort((a, b) => a.startTime - b.startTime);
+  }, [localRows, sharedRows, weekDeviceEvents, weekEnd, weekStart]);
 
   const shareLabelOptions = useMemo<ShareLabelOption[]>(
-    () =>
-      labelList.map((label) => ({
+    () => [
+      ...labelList.map((label) => ({
         id: label.id,
         name: label.name,
         color: label.color,
       })),
-    [labelList],
+      ...(isDeviceLabEnabled
+        ? deviceCalendars.map((calendar) => ({
+            id: getDeviceLabelId(calendar.id),
+            name: `${calendar.title} · ${providerLabel(calendar.provider)}`,
+            color: calendar.color || "#A8C8F0",
+          }))
+        : []),
+    ],
+    [deviceCalendars, isDeviceLabEnabled, labelList],
   );
 
   const sharePreviewEvents = useMemo<WeekCalendarEvent[]>(() => {
-    if (shareSettingsError) return [];
+    if (sharePreviewError) return [];
 
     const selectedLabels = new Set(shareSettings.selectedLabelIds);
-
-    return shareRows
+    const localPreviewEvents = shareRows
       .flatMap((row) => {
         if (row.event.labelId) {
           if (!selectedLabels.has(row.event.labelId)) return [];
@@ -519,15 +675,46 @@ export default function SharedScreen() {
             } satisfies WeekCalendarEvent;
           });
       })
-      .sort((a, b) => a.startTime - b.startTime);
+    const devicePreviewEvents = shareDeviceEvents.flatMap((event) => {
+      if (!event.deviceCalendarId) return [];
+
+      const labelId = getDeviceLabelId(event.deviceCalendarId);
+      if (!selectedLabels.has(labelId)) return [];
+
+      const overrideKey = getShareOverrideKey(event.id, event.startTime);
+      const visibility =
+        shareSettings.eventVisibilityOverrides[overrideKey] ?? "visible";
+
+      return {
+        id: `share-preview:${event.id}`,
+        title: getDevicePreviewTitle(event, visibility),
+        startTime: event.startTime,
+        endTime: event.endTime,
+        isAllDay: event.isAllDay,
+        color: event.labelColor,
+        opacity: visibility === "invisible" ? 0.32 : 1,
+        source: labelId,
+        editable: false,
+        layoutGroupId: labelId,
+        shareOverrideKey: overrideKey,
+        shareVisibility: visibility,
+        shareDefaultVisibility: "visible",
+        originalTitle: event.title,
+      } satisfies WeekCalendarEvent;
+    });
+
+    return [...localPreviewEvents, ...devicePreviewEvents].sort(
+      (a, b) => a.startTime - b.startTime,
+    );
   }, [
     shareRange.end,
     shareRange.start,
+    shareDeviceEvents,
     shareRows,
     shareSettings.eventVisibilityOverrides,
     shareSettings.includeUnlabeled,
     shareSettings.selectedLabelIds,
-    shareSettingsError,
+    sharePreviewError,
   ]);
 
   const shareIncludedEventCount = useMemo(
@@ -539,17 +726,17 @@ export default function SharedScreen() {
   );
 
   const canSharePreviewPreviousWeek = useMemo(() => {
-    if (shareSettingsError) return false;
+    if (sharePreviewError) return false;
     return dayjs(sharePreviewWeekKey).isAfter(dayjs(getWeekKey(shareRange.startDate)));
-  }, [sharePreviewWeekKey, shareRange.startDate, shareSettingsError]);
+  }, [sharePreviewWeekKey, shareRange.startDate, sharePreviewError]);
 
   const canSharePreviewNextWeek = useMemo(() => {
-    if (shareSettingsError) return false;
+    if (sharePreviewError) return false;
     const nextWeekStart = dayjs(addWeeks(sharePreviewWeekKey, 1))
       .startOf("day")
       .valueOf();
     return nextWeekStart <= shareRange.end;
-  }, [sharePreviewWeekKey, shareRange.end, shareSettingsError]);
+  }, [sharePreviewWeekKey, shareRange.end, sharePreviewError]);
 
   const sources = useMemo<SharedBundleSource[]>(
     () => [
@@ -589,6 +776,28 @@ export default function SharedScreen() {
 
     setIsCreatingQr(true);
     try {
+      const selectedLabels = new Set(settings.selectedLabelIds);
+      const extraEvents: SharedBundlePayloadEvent[] = shareDeviceEvents.flatMap(
+        (event) => {
+          if (!event.deviceCalendarId) return [];
+          if (!selectedLabels.has(getDeviceLabelId(event.deviceCalendarId))) {
+            return [];
+          }
+
+          const overrideKey = getShareOverrideKey(event.id, event.startTime);
+          const visibility =
+            settings.eventVisibilityOverrides[overrideKey] ?? "visible";
+          const title = getSharedDeviceTitle(event, visibility);
+          if (!title) return [];
+
+          return {
+            title,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            isAllDay: event.isAllDay,
+          };
+        },
+      );
       const result = await createSharedBundleLink({
         userId,
         user,
@@ -599,6 +808,7 @@ export default function SharedScreen() {
         selectedLabelIds: settings.selectedLabelIds,
         includeUnlabeled: settings.includeUnlabeled,
         eventVisibilityOverrides: settings.eventVisibilityOverrides,
+        extraEvents,
         expiresAt: getExpiresAt(settings, Date.now()),
       });
       setQr(result);

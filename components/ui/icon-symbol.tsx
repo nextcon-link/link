@@ -17,6 +17,7 @@ const MAPPING = {
   'house.fill': 'home',
   'calendar': 'calendar-today',
   'person.2.fill': 'groups',
+  'square.and.arrow.up': 'share',
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',

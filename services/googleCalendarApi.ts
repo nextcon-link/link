@@ -7,6 +7,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export type GoogleConnectionStatus = {
   isConnected: boolean;
+  googleEmail: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
   calendarCount: number;

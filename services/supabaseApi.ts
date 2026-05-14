@@ -1,10 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Session } from '@supabase/supabase-js';
 import type { Event, Label } from '../database/schema';
 import type { sharingMode } from '@/utils/events';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+const SUPABASE_AUTH_STORAGE_KEY = `sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -14,6 +16,42 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: false,
   },
 });
+
+function isStoredSession(value: unknown): value is Session {
+  if (!value || typeof value !== 'object') return false;
+
+  const candidate = value as {
+    access_token?: unknown;
+    user?: { id?: unknown };
+  };
+
+  return (
+    'user' in value &&
+    'access_token' in value &&
+    typeof candidate.access_token === 'string' &&
+    typeof candidate.user?.id === 'string'
+  );
+}
+
+export async function getPersistedAuthSession(): Promise<Session | null> {
+  const raw = await AsyncStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return isStoredSession(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPersistedAuthSession(): Promise<void> {
+  await AsyncStorage.multiRemove([
+    SUPABASE_AUTH_STORAGE_KEY,
+    `${SUPABASE_AUTH_STORAGE_KEY}-code-verifier`,
+    `${SUPABASE_AUTH_STORAGE_KEY}-user`,
+  ]);
+}
 
 // Remote types — timestamps are ISO strings in Supabase
 export type RemoteLabel = {

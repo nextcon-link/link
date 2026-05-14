@@ -1,4 +1,5 @@
 import { router, Stack, useFocusEffect } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -13,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   addFriendByUsername,
@@ -29,6 +31,7 @@ import {
   type FriendShareSetting,
   type FriendScheduleEvent,
 } from "@/services/friendScheduleService";
+import { getMyProfile, type Profile } from "@/services/profileApi";
 import { expandEventOccurrences } from "@/services/recurrence";
 import { db } from "@/database";
 import { labels } from "@/database/schema";
@@ -77,8 +80,12 @@ function getProfileName(friend: FriendProfile): string {
 }
 
 export default function FriendsScreen() {
+  const insets = useSafeAreaInsets();
+  const user = useAuthStore((state) => state.user);
   const userId = useAuthStore((state) => state.user?.id ?? "");
+  const signOut = useAuthStore((state) => state.signOut);
   const [username, setUsername] = useState("");
+  const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -160,6 +167,14 @@ export default function FriendsScreen() {
         .sort((a, b) => a.startTime - b.startTime),
     [friendEvents, friendWeekEnd, friendWeekStart],
   );
+  const myDisplayName =
+    myProfile?.display_name ||
+    user?.user_metadata?.display_name ||
+    user?.email?.split("@")[0] ||
+    "내 계정";
+  const myUsername = myProfile?.username || user?.user_metadata?.username || "";
+  const screenBottomPadding = 120 + insets.bottom;
+  const bottomSheetPadding = 18 + insets.bottom;
 
   const refreshFriends = useCallback(async () => {
     setIsLoading(true);
@@ -175,10 +190,20 @@ export default function FriendsScreen() {
     }
   }, []);
 
+  const refreshMyProfile = useCallback(async () => {
+    try {
+      const profile = await getMyProfile();
+      setMyProfile(profile);
+    } catch {
+      setMyProfile(null);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       refreshFriends();
-    }, [refreshFriends]),
+      refreshMyProfile();
+    }, [refreshFriends, refreshMyProfile]),
   );
 
   const handleAddFriend = async () => {
@@ -203,6 +228,11 @@ export default function FriendsScreen() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace("/login");
   };
 
   const handleRemoveFriend = async (friendId: string) => {
@@ -388,10 +418,35 @@ export default function FriendsScreen() {
     <>
       <Stack.Screen options={{ title: "친구" }} />
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: screenBottomPadding },
+        ]}
         style={styles.container}
       >
-        <Text style={styles.title}>친구</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>친구</Text>
+          <Pressable
+            accessibilityLabel="로그아웃"
+            onPress={handleSignOut}
+            style={styles.logoutButton}
+          >
+            <MaterialCommunityIcons name="logout" size={23} color="#111" />
+          </Pressable>
+        </View>
+        <View style={styles.myIdBox}>
+          <View style={styles.myAvatar}>
+            <Text style={styles.myAvatarText}>
+              {myDisplayName.slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.myIdInfo}>
+            <Text style={styles.myIdLabel}>내 아이디</Text>
+            <Text style={styles.myIdValue}>
+              {myUsername ? `@${myUsername}` : "아이디를 불러오는 중"}
+            </Text>
+          </View>
+        </View>
         <Text style={styles.subtitle}>친구의 아이디를 정확히 입력하세요.</Text>
 
         <View style={styles.addBox}>
@@ -435,35 +490,45 @@ export default function FriendsScreen() {
         ) : (
           friends.map((friend) => (
             <View key={friend.id} style={styles.friendItem}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {getProfileName(friend).slice(0, 1).toUpperCase()}
-                </Text>
+              <View style={styles.friendMainRow}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {getProfileName(friend).slice(0, 1).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.friendInfo}>
+                  <Text style={styles.friendName}>{getProfileName(friend)}</Text>
+                  {friend.username && (
+                    <Text style={styles.friendUsername}>@{friend.username}</Text>
+                  )}
+                </View>
               </View>
-              <View style={styles.friendInfo}>
-                <Text style={styles.friendName}>{getProfileName(friend)}</Text>
-                {friend.username && (
-                  <Text style={styles.friendUsername}>@{friend.username}</Text>
-                )}
+              <View style={styles.friendActionRow}>
+                <Pressable
+                  accessibilityLabel={`${getProfileName(friend)} 공유 설정`}
+                  onPress={() => openShareSettings(friend)}
+                  style={[styles.friendActionButton, styles.shareSettingsButton]}
+                >
+                  <MaterialCommunityIcons name="share-variant" size={16} color="#FFF" />
+                  <Text style={styles.friendActionButtonText}>공유</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`${getProfileName(friend)} 일정 보기`}
+                  onPress={() => openFriendSchedule(friend)}
+                  style={[styles.friendActionButton, styles.scheduleButton]}
+                >
+                  <MaterialCommunityIcons name="calendar-month-outline" size={16} color="#FFF" />
+                  <Text style={styles.friendActionButtonText}>일정</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`${getProfileName(friend)} 삭제`}
+                  onPress={() => handleRemoveFriend(friend.id)}
+                  style={[styles.friendActionButton, styles.deleteButton]}
+                >
+                  <MaterialCommunityIcons name="trash-can-outline" size={16} color="#FFF" />
+                  <Text style={styles.friendActionButtonText}>삭제</Text>
+                </Pressable>
               </View>
-              <Pressable
-                onPress={() => openShareSettings(friend)}
-                style={styles.shareSettingsButton}
-              >
-                <Text style={styles.shareSettingsButtonText}>공유</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => openFriendSchedule(friend)}
-                style={styles.scheduleButton}
-              >
-                <Text style={styles.scheduleButtonText}>일정</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleRemoveFriend(friend.id)}
-                style={styles.deleteButton}
-              >
-                <Text style={styles.deleteButtonText}>삭제</Text>
-              </Pressable>
             </View>
           ))
         )}
@@ -476,11 +541,11 @@ export default function FriendsScreen() {
         onRequestClose={closeShareSettings}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.settingsSheet}>
+          <View style={[styles.settingsSheet, { paddingBottom: bottomSheetPadding }]}>
             <View style={styles.sheetHeader}>
               <View style={styles.sheetTitleBox}>
                 <Text style={styles.sheetTitle}>
-                  {settingsFriend ? getProfileName(settingsFriend) : "친구"} 공유
+                  {settingsFriend ? getProfileName(settingsFriend) : "친구"}에게 공유
                 </Text>
                 <Text style={styles.sheetSubtitle}>내 일정을 친구에게 보여줍니다.</Text>
               </View>
@@ -640,11 +705,11 @@ export default function FriendsScreen() {
         onRequestClose={closeFriendSchedule}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.scheduleSheet}>
+          <View style={[styles.scheduleSheet, { paddingBottom: bottomSheetPadding }]}>
             <View style={styles.sheetHeader}>
               <View style={styles.sheetTitleBox}>
                 <Text style={styles.sheetTitle}>
-                  {selectedFriend ? getProfileName(selectedFriend) : "친구"} 일정
+                  {selectedFriend ? getProfileName(selectedFriend) : "친구"}의 일정
                 </Text>
                 <Text style={styles.sheetSubtitle}>
                   공유 허용된 일정만 표시됩니다.
@@ -707,7 +772,7 @@ export default function FriendsScreen() {
               {isSavingBundle ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.saveBundleButtonText}>공유탭에 일정 덩어리 추가</Text>
+                <Text style={styles.saveBundleButtonText}>공유 탭에서 보기</Text>
               )}
             </Pressable>
           </View>
@@ -725,17 +790,70 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingTop: 60,
+    paddingBottom: 120,
   },
   title: {
     color: "#111",
     fontSize: 26,
     fontWeight: "bold",
   },
+  headerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  logoutButton: {
+    alignItems: "center",
+    borderColor: "#DDD",
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
   subtitle: {
     color: "#666",
     fontSize: 14,
     marginTop: 6,
     marginBottom: 20,
+  },
+  myIdBox: {
+    alignItems: "center",
+    backgroundColor: "#F7F7F7",
+    borderColor: "#E4E4E4",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 18,
+    padding: 14,
+  },
+  myAvatar: {
+    alignItems: "center",
+    backgroundColor: "#111",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  myAvatarText: {
+    color: "#FFF",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  myIdInfo: {
+    flex: 1,
+  },
+  myIdLabel: {
+    color: "#666",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  myIdValue: {
+    color: "#111",
+    fontSize: 18,
+    fontWeight: "800",
+    marginTop: 3,
   },
   addBox: {
     gap: 10,
@@ -797,14 +915,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   friendItem: {
-    alignItems: "center",
     borderColor: "#DDD",
     borderRadius: 10,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
+    gap: 12,
     marginBottom: 10,
     padding: 12,
+  },
+  friendMainRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
   },
   avatar: {
     alignItems: "center",
@@ -834,9 +955,6 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     backgroundColor: "#D9534F",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   deleteButtonText: {
     color: "#FFF",
@@ -845,9 +963,6 @@ const styles = StyleSheet.create({
   },
   scheduleButton: {
     backgroundColor: "#111",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   scheduleButtonText: {
     color: "#FFF",
@@ -856,14 +971,30 @@ const styles = StyleSheet.create({
   },
   shareSettingsButton: {
     backgroundColor: "#6C8AE4",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   shareSettingsButtonText: {
     color: "#FFF",
     fontSize: 13,
     fontWeight: "700",
+  },
+  friendActionRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  friendActionButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    flex: 1,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: 8,
+  },
+  friendActionButtonText: {
+    color: "#FFF",
+    fontSize: 13,
+    fontWeight: "800",
   },
   modalBackdrop: {
     flex: 1,
@@ -878,7 +1009,7 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   scheduleSheet: {
-    maxHeight: "92%",
+    height: "88%",
     backgroundColor: "#FFF",
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
@@ -1047,10 +1178,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   scheduleCalendarBox: {
-    height: 420,
     borderColor: "#EEE",
     borderRadius: 8,
     borderWidth: 1,
+    flex: 1,
+    minHeight: 300,
     overflow: "hidden",
   },
   scheduleLoadingBox: {

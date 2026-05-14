@@ -5,10 +5,15 @@ export type EventFormInput = {
   startMinute: number;
   endHour: number;
   endMinute: number;
+  target: EventFormTarget;
   labelId: string | null;
   recurrenceRule: string | null;  // iCal RRULE string, e.g. "FREQ=WEEKLY"
   sharingMode: sharingMode;
 };
+
+export type EventFormTarget =
+  | { type: 'local' }
+  | { type: 'device'; calendarId: string };
 
 export type sharingMode = 'none' | 'visible' | 'invisible' | 'blind';
 

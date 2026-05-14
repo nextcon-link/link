@@ -99,13 +99,13 @@ export default function LoginScreen() {
           </Pressable>
 
           {/* DEV_ONLY: remove DEV_TEST_ACCOUNT and this button before release. */}
-          <Pressable
+          {/* <Pressable
             disabled={isLoading}
             onPress={handleDevLogin}
             style={[styles.devButton, isLoading && styles.disabledButton]}
           >
             <Text style={styles.devButtonText}>테스트 계정으로 로그인</Text>
-          </Pressable>
+          </Pressable> */}
 
           <Pressable onPress={() => router.push("/signup")} style={styles.linkButton}>
             <Text style={styles.linkText}>회원가입</Text>

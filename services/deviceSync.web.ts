@@ -1,10 +1,23 @@
 // expo-calendar is not supported on web.
 import type { EventWithLabel } from './deviceSync';
+import type { DeviceCalendarOption } from './deviceCalendarSettings';
 
 export type { MergedEvent, EventWithLabel } from './deviceSync';
 
 export async function requestCalendarPermission(): Promise<boolean> {
   return false;
+}
+
+export async function isDeviceCalendarLabEnabled(): Promise<boolean> {
+  return false;
+}
+
+export async function getDeviceCalendarOptions(): Promise<DeviceCalendarOption[]> {
+  return [];
+}
+
+export async function getWritableDeviceCalendarOptions(): Promise<DeviceCalendarOption[]> {
+  return [];
 }
 
 export async function getMergedEvents(
@@ -21,7 +34,7 @@ export async function getMergedEvents(
       endTime: e.endTime,
       isAllDay: e.isAllDay,
       source: 'local' as const,
-      labelColor: e.label?.color ?? '#9FF4E2',
+      labelColor: e.label?.color ?? '#DC143C',
       isReadonly: e.label?.googleIsReadonly ?? false,
       syncStatus: e.syncStatus,
     }));

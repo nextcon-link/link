@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams, type Href } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import { and, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
@@ -26,7 +26,6 @@ const MAIN_CALENDAR_LAYOUT_GROUP_ID = "main-calendar";
 
 export default function HomeScreen() {
   const userId = useAuthStore((state) => state.user?.id ?? "");
-  const signOut = useAuthStore((state) => state.signOut);
   const { date, week } = useLocalSearchParams();
   const weekKey = week ? String(week) : getCurrentWeekKey();
   const weekDates = useMemo(() => getWeekDates(weekKey), [weekKey]);
@@ -125,7 +124,7 @@ export default function HomeScreen() {
   const [mergedEvents, setMergedEvents] = useState<MergedEvent[]>([]);
 
   // Flow C — merge device calendar events in memory whenever local events change
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
 
     getMergedEvents(localEvents, weekDates[0], weekDates[6]).then(
@@ -139,7 +138,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [localEvents, weekDates]);
+  }, [localEvents, weekDates]));
 
   const calendarEvents: WeekCalendarEvent[] = useMemo(
     () =>
@@ -149,20 +148,19 @@ export default function HomeScreen() {
         startTime: event.startTime,
         endTime: event.endTime,
         isAllDay: event.isAllDay,
-        color: event.labelColor ?? "#9FF4E2",
+        color: event.labelColor ?? "#DC143C",
         opacity: event.source === "device" ? 0.7 : 1,
         source: event.source,
-        editable: event.source === "local" && !event.isReadonly,
+        editable:
+          event.source === "local"
+            ? !event.isReadonly
+            : Boolean(event.canModify && !event.isAllDay),
+        deviceCalendarId: event.deviceCalendarId,
         editEventId: event.originalEventId ?? event.id,
         layoutGroupId: MAIN_CALENDAR_LAYOUT_GROUP_ID,
       })),
     [mergedEvents],
   );
-
-  const handleSignOut = async () => {
-    await signOut();
-    router.replace("/login");
-  };
 
   const moveWeek = (amount: number) => {
     router.replace({
@@ -171,32 +169,36 @@ export default function HomeScreen() {
     });
   };
 
+  const openMonthCalendar = () => {
+    allowCalendarEntry("home");
+    router.push({
+      pathname: "/calendar",
+      params: { source: "home", week: weekKey },
+    });
+  };
+
+  const openAddEvent = () => {
+    router.push({ pathname: "/add", params: { week: weekKey } });
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
         <Pressable
           style={styles.dateButton}
-          onPress={() => {
-            allowCalendarEntry("home");
-            router.push({
-              pathname: "/calendar",
-              params: { source: "home", week: weekKey },
-            });
-          }}
+          onPress={openMonthCalendar}
         >
-          <Text style={styles.dateButtonText}>{selectedDateLabel}</Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.82}
+            numberOfLines={1}
+            style={styles.dateButtonText}
+          >
+            {selectedDateLabel}
+          </Text>
         </Pressable>
 
         <View style={styles.topActions}>
-          <Pressable
-            accessibilityLabel="일정 추가"
-            style={styles.iconButton}
-            onPress={() =>
-              router.push({ pathname: "/add", params: { week: weekKey } })
-            }
-          >
-            <MaterialCommunityIcons name="plus" size={32} color="#1B1B20" />
-          </Pressable>
           <Pressable
             accessibilityLabel="라벨 추가"
             style={styles.iconButton}
@@ -211,7 +213,7 @@ export default function HomeScreen() {
           <Pressable
             accessibilityLabel="친구"
             style={styles.iconButton}
-            onPress={() => router.push("/friends" as Href)}
+            onPress={() => router.push("/friends")}
           >
             <MaterialCommunityIcons
               name="account-group"
@@ -220,11 +222,15 @@ export default function HomeScreen() {
             />
           </Pressable>
           <Pressable
-            accessibilityLabel="로그아웃"
+            accessibilityLabel="월간 캘린더"
             style={styles.iconButton}
-            onPress={handleSignOut}
+            onPress={openMonthCalendar}
           >
-            <MaterialCommunityIcons name="logout" size={29} color="#1B1B20" />
+            <MaterialCommunityIcons
+              name="calendar-month-outline"
+              size={29}
+              color="#1B1B20"
+            />
           </Pressable>
         </View>
       </View>
@@ -234,17 +240,34 @@ export default function HomeScreen() {
           weekKey={weekKey}
           events={calendarEvents}
           onEventPress={(event) => {
-            if (!event.editable) return;
-            router.push({
-              pathname: "/edit",
-              params: { id: event.editEventId ?? event.id, week: weekKey },
-            });
+            if (event.source === "device") {
+              if (!event.editable) return;
+              router.push({
+                pathname: "/device-event",
+                params: { id: event.editEventId ?? event.id, week: weekKey },
+              });
+              return;
+            }
+
+            if (event.editable) {
+              router.push({
+                pathname: "/edit",
+                params: { id: event.editEventId ?? event.id, week: weekKey },
+              });
+            }
           }}
           onPreviousWeek={() => moveWeek(-1)}
           onNextWeek={() => moveWeek(1)}
         />
       </View>
 
+      <Pressable
+        accessibilityLabel="일정 추가"
+        onPress={openAddEvent}
+        style={styles.floatingAddButton}
+      >
+        <MaterialCommunityIcons name="plus" size={34} color="#FFFFFF" />
+      </Pressable>
     </View>
   );
 }
@@ -259,9 +282,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "flex-end",
-    gap: 18,
-    paddingLeft: 52,
-    paddingRight: 40,
+    gap: 14,
+    paddingLeft: 42,
+    paddingRight: 28,
     paddingBottom: 18,
   },
   dateButton: {
@@ -289,5 +312,21 @@ const styles = StyleSheet.create({
   },
   calendarShell: {
     flex: 1,
+  },
+  floatingAddButton: {
+    position: "absolute",
+    right: 24,
+    bottom: 22,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#DC143C",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });

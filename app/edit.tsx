@@ -51,6 +51,7 @@ export default function EditScreen() {
         startMinute:    startD.minute(),
         endHour:        endD.hour(),
         endMinute:      endD.minute(),
+        target:         { type: "local" },
         labelId:        event.labelId ?? null,
         recurrenceRule: event.recurrenceRule ?? null,
         sharingMode:   (event.sharingMode as sharingMode) ?? "none",

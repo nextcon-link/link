@@ -54,7 +54,7 @@ export default function CalendarScreen() {
           textSectionTitleColor: "#111111",
           monthTextColor: "#111111",
           arrowColor: "#111111",
-          todayTextColor: "#4A90E2",
+          todayTextColor: "#DC143C",
           dayTextColor: "#111111",
         }}
       />

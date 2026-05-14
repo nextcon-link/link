@@ -115,9 +115,12 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add" options={{ presentation: 'modal' }} />
         <Stack.Screen name="edit" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="device-event" options={{ presentation: 'modal' }} />
         <Stack.Screen name="labels" options={{ title: '라벨 관리' }} />
         <Stack.Screen name="google" options={{ title: 'Google Calendar' }} />
+        <Stack.Screen name="device-calendars" options={{ title: '기기 캘린더 라벨' }} />
         <Stack.Screen name="friends" options={{ title: '친구' }} />
+        <Stack.Screen name="shared-bundle" options={{ headerShown: false }} />
         <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />

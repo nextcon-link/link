@@ -9,11 +9,14 @@ export const corsHeaders = {
 const GOOGLE_API = "https://www.googleapis.com/calendar/v3";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
-const DEFAULT_COLOR = "#4A90E2";
+const GOOGLE_OAUTH_SCOPE = `${GOOGLE_CALENDAR_SCOPE} openid email profile`;
+const DEFAULT_COLOR = "#DC143C";
 
 export type GoogleConnectionStatus = {
   isConnected: boolean;
+  googleEmail: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
   calendarCount: number;
@@ -23,6 +26,7 @@ export type GoogleConnectionStatus = {
 
 type GoogleConnection = {
   user_id: string;
+  google_email: string | null;
   access_token: string | null;
   refresh_token: string | null;
   expires_at: string | null;
@@ -211,7 +215,7 @@ export async function createGoogleAuthUrl(
     client_id: getRequiredEnv("GOOGLE_CLIENT_ID"),
     redirect_uri: getRequiredEnv("GOOGLE_OAUTH_CALLBACK_URL"),
     response_type: "code",
-    scope: GOOGLE_CALENDAR_SCOPE,
+    scope: GOOGLE_OAUTH_SCOPE,
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -374,7 +378,7 @@ export async function getConnectionStatus(userId: string): Promise<GoogleConnect
   const [{ data: connection }, { count }, { count: watchUnsupportedCount }, { count: failedCalendarCount }] = await Promise.all([
     supabase
       .from("google_connections")
-      .select("is_connected,last_sync_at,last_error")
+      .select("is_connected,google_email,last_sync_at,last_error")
       .eq("user_id", userId)
       .maybeSingle(),
     supabase
@@ -398,6 +402,7 @@ export async function getConnectionStatus(userId: string): Promise<GoogleConnect
 
   return {
     isConnected: Boolean(connection?.is_connected),
+    googleEmail: connection?.google_email ?? null,
     lastSyncAt: connection?.last_sync_at ?? null,
     lastError: connection?.last_error ?? null,
     calendarCount: count ?? 0,
@@ -413,6 +418,8 @@ export async function storeGoogleTokens(
     providerRefreshToken?: string;
     expiresAt?: number;
     scope?: string;
+    googleSubject?: string | null;
+    googleEmail?: string | null;
   },
 ) {
   const supabase = getAdminClient();
@@ -433,6 +440,8 @@ export async function storeGoogleTokens(
 
   const { error } = await supabase.from("google_connections").upsert({
     user_id: userId,
+    google_subject: payload.googleSubject ?? null,
+    google_email: payload.googleEmail ?? null,
     access_token: payload.providerToken ?? null,
     refresh_token: refreshToken,
     expires_at: expiresAt,
@@ -443,6 +452,27 @@ export async function storeGoogleTokens(
   });
 
   if (error) throw error;
+}
+
+async function getGoogleUserInfo(accessToken: string): Promise<{
+  sub: string | null;
+  email: string | null;
+}> {
+  const response = await fetch(GOOGLE_USERINFO_URL, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    return { sub: null, email: null };
+  }
+
+  const body = await response.json();
+  return {
+    sub: typeof body.sub === "string" ? body.sub : null,
+    email: typeof body.email === "string" ? body.email : null,
+  };
 }
 
 export async function exchangeGoogleAuthCode(
@@ -469,11 +499,17 @@ export async function exchangeGoogleAuthCode(
   }
 
   const token = await response.json();
+  const userInfo = token.access_token
+    ? await getGoogleUserInfo(token.access_token)
+    : { sub: null, email: null };
+
   await storeGoogleTokens(userId, {
     providerToken: token.access_token,
     providerRefreshToken: token.refresh_token,
     expiresAt: Math.floor(Date.now() / 1000) + Number(token.expires_in ?? 3600),
-    scope: token.scope ?? GOOGLE_CALENDAR_SCOPE,
+    scope: token.scope ?? GOOGLE_OAUTH_SCOPE,
+    googleSubject: userInfo.sub,
+    googleEmail: userInfo.email,
   });
 }
 

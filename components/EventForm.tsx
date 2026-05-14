@@ -1,5 +1,5 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
-import { Stack, useFocusEffect } from "expo-router";
+import { router, Stack, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   Pressable,
@@ -9,13 +9,19 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { db } from "@/database";
 import type { Label } from "@/database/schema";
 import { labels } from "@/database/schema";
+import {
+  getWritableDeviceCalendarOptions,
+} from "@/services/deviceSync";
+import type { DeviceCalendarOption } from "@/services/deviceCalendarSettings";
 import { useAuthStore } from "@/store/auth";
 import { DAYS, formatDate } from "@/utils/date";
-import { sharingMode, type EventFormInput } from "@/utils/events";
+import type { EventFormInput, sharingMode } from "@/utils/events";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = [0, 10, 20, 30, 40, 50];
@@ -37,6 +43,12 @@ const RECURRENCE_OPTIONS: RecurrenceOption[] = [
   { label: "매년",   rule: "FREQ=YEARLY" },
 ];
 
+function formatTime(hour: number, minute: number) {
+  const suffix = hour < 12 ? "AM" : "PM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
 type Props = {
   mode: "add" | "edit";
   weekDates: Date[];
@@ -52,6 +64,7 @@ export default function EventForm({
   onSubmit,
   onDelete,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const [title, setTitle] = useState(initialValue.title);
   const [selectedDate, setSelectedDate] = useState(initialValue.date);
@@ -68,8 +81,15 @@ export default function EventForm({
   const [sharingMode, setSharingMode] = useState<sharingMode>(
     initialValue.sharingMode,
   );
+  const [target, setTarget] = useState(initialValue.target);
+  const [expandedTimeField, setExpandedTimeField] = useState<
+    "start" | "end" | null
+  >(null);
 
   const [dbLabels, setDbLabels] = useState<Label[]>([]);
+  const [deviceCalendars, setDeviceCalendars] = useState<DeviceCalendarOption[]>([]);
+  const isEditingDeviceEvent =
+    mode === "edit" && initialValue.target.type === "device";
 
   const refreshLabels = useCallback(async () => {
     if (!userId) {
@@ -89,13 +109,33 @@ export default function EventForm({
     setDbLabels(rows);
   }, [userId]);
 
+  const refreshDeviceCalendars = useCallback(async () => {
+    if (mode !== "add" && !isEditingDeviceEvent) {
+      setDeviceCalendars([]);
+      return;
+    }
+
+    const rows = await getWritableDeviceCalendarOptions();
+    if (isEditingDeviceEvent && initialValue.target.type === "device") {
+      const currentDeviceCalendarId = initialValue.target.calendarId;
+      setDeviceCalendars(
+        rows.filter((calendar) => calendar.id === currentDeviceCalendarId),
+      );
+      return;
+    }
+
+    setDeviceCalendars(rows);
+  }, [initialValue.target, isEditingDeviceEvent, mode]);
+
   useFocusEffect(
     useCallback(() => {
       refreshLabels();
-    }, [refreshLabels]),
+      refreshDeviceCalendars();
+    }, [refreshDeviceCalendars, refreshLabels]),
   );
 
   const handleSubmit = async () => {
+    const isDeviceTarget = target.type === "device";
     await onSubmit({
       title,
       date: selectedDate,
@@ -103,258 +143,376 @@ export default function EventForm({
       startMinute,
       endHour,
       endMinute,
-      labelId: selectedLabelId,
-      recurrenceRule,
-      sharingMode,
+      target,
+      labelId: isDeviceTarget ? null : selectedLabelId,
+      recurrenceRule: isDeviceTarget ? null : recurrenceRule,
+      sharingMode: isDeviceTarget ? "none" : sharingMode,
     });
   };
 
   const headerTitle = mode === "add" ? "일정 추가" : "일정 편집";
-  const headerRightLabel = mode === "add" ? "추가" : "적용";
+  const submitLabel = mode === "add" ? "추가" : "저장";
+  const timeOptions =
+    expandedTimeField === "start"
+      ? { hour: startHour, minute: startMinute, setHour: setStartHour, setMinute: setStartMinute }
+      : { hour: endHour, minute: endMinute, setHour: setEndHour, setMinute: setEndMinute };
 
   return (
     <>
       <Stack.Screen
         options={{
           title: headerTitle,
-          headerRight: () => (
-            <Pressable onPress={handleSubmit} style={styles.headerBtn}>
-              <Text style={[styles.headerBtnText, styles.headerBtnPrimary]}>
-                {headerRightLabel}
-              </Text>
-            </Pressable>
-          ),
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: "#FFFFFF" },
+          headerTitleStyle: styles.headerTitle,
         }}
       />
 
-      <ScrollView style={styles.container}>
-        {/* 이름 */}
-        <Text style={styles.sectionLabel}>일정 이름</Text>
-        <TextInput
-          style={styles.input}
-          value={title}
-          onChangeText={setTitle}
-          placeholder="예: 자료구조"
-          placeholderTextColor="#999"
-        />
+      <View style={styles.screen}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.sectionLabel}>일정 이름</Text>
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="예: 자료구조"
+            placeholderTextColor="#A8A8A8"
+          />
 
-        {/* 라벨 */}
-        <Text style={styles.sectionLabel}>라벨</Text>
-        <View style={styles.row}>
-          <Pressable
-            style={[
-              styles.chip,
-              selectedLabelId === null && styles.chipSelected,
-            ]}
-            onPress={() => setSelectedLabelId(null)}
-          >
-            <Text style={[styles.chipText, selectedLabelId === null && styles.chipTextSelected]}>
-              없음
-            </Text>
-          </Pressable>
-          {dbLabels.map((lbl) => {
-            const selected = selectedLabelId === lbl.id;
-            const disabled = lbl.googleIsReadonly;
-            return (
-              <Pressable
-                key={lbl.id}
-                disabled={disabled}
-                style={[
-                  styles.chip,
-                  selected && styles.chipSelected,
-                  disabled && styles.chipDisabled,
-                ]}
-                onPress={() => setSelectedLabelId(lbl.id)}
-              >
-                <View style={[styles.colorDot, { backgroundColor: lbl.color }]} />
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {lbl.name}{disabled ? " 읽기전용" : ""}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* 날짜 */}
-        <Text style={styles.sectionLabel}>날짜</Text>
-        <View style={styles.row}>
-          {weekDates.map((date, index) => {
-            const dateString = formatDate(date);
-            const selected = selectedDate === dateString;
-            return (
-              <Pressable
-                key={dateString}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => setSelectedDate(dateString)}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {DAYS[index]} {date.getDate()}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* 시작 시간 */}
-        <Text style={styles.sectionLabel}>시작</Text>
-        <View style={styles.timeRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {HOURS.map((hour) => {
-              const selected = startHour === hour;
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>라벨</Text>
+            <Pressable
+              accessibilityLabel="라벨 관리"
+              hitSlop={8}
+              style={styles.iconButton}
+              onPress={() => router.push("/labels")}
+            >
+              <MaterialCommunityIcons name="cog" size={23} color="#111111" />
+            </Pressable>
+          </View>
+          <View style={styles.row}>
+            {!isEditingDeviceEvent && (
+              <>
+                <Pressable
+                  style={[
+                    styles.chip,
+                    target.type === "local" &&
+                      selectedLabelId === null &&
+                      styles.chipSelected,
+                  ]}
+                  onPress={() => {
+                    setTarget({ type: "local" });
+                    setSelectedLabelId(null);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      target.type === "local" &&
+                        selectedLabelId === null &&
+                        styles.chipTextSelected,
+                    ]}
+                  >
+                    없음
+                  </Text>
+                </Pressable>
+                {dbLabels.map((lbl) => {
+                  const selected =
+                    target.type === "local" && selectedLabelId === lbl.id;
+                  const disabled = lbl.googleIsReadonly;
+                  return (
+                    <Pressable
+                      key={lbl.id}
+                      disabled={disabled}
+                      style={[
+                        styles.chip,
+                        selected && styles.chipSelected,
+                        disabled && styles.chipDisabled,
+                      ]}
+                      onPress={() => {
+                        setTarget({ type: "local" });
+                        setSelectedLabelId(lbl.id);
+                      }}
+                    >
+                      <View
+                        style={[styles.colorDot, { backgroundColor: lbl.color }]}
+                      />
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {lbl.name}{disabled ? " 읽기전용" : ""}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </>
+            )}
+            {deviceCalendars.map((calendar) => {
+              const selected =
+                target.type === "device" && target.calendarId === calendar.id;
               return (
                 <Pressable
-                  key={hour}
-                  style={[styles.timeChip, selected && styles.chipSelected]}
-                  onPress={() => setStartHour(hour)}
+                  key={calendar.id}
+                  disabled={isEditingDeviceEvent}
+                  style={[
+                    styles.chip,
+                    selected && styles.chipSelected,
+                    isEditingDeviceEvent && styles.chipDisabled,
+                  ]}
+                  onPress={() => {
+                    setTarget({ type: "device", calendarId: calendar.id });
+                    setSelectedLabelId(null);
+                  }}
                 >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {hour}시
+                  <View
+                    style={[styles.colorDot, { backgroundColor: calendar.color }]}
+                  />
+                  <Text
+                    style={[
+                      styles.chipText,
+                      selected && styles.chipTextSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {calendar.title} 기기
                   </Text>
                 </Pressable>
               );
             })}
-          </ScrollView>
-          <View style={styles.minuteGroup}>
-            {MINUTES.map((minute) => {
-              const selected = startMinute === minute;
+            {isEditingDeviceEvent && deviceCalendars.length === 0 && (
+              <View style={[styles.chip, styles.chipSelected]}>
+                <Text style={[styles.chipText, styles.chipTextSelected]}>
+                  기기 캘린더
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <Text style={styles.sectionLabel}>날짜</Text>
+          <View style={styles.dateGrid}>
+            {weekDates.map((date, index) => {
+              const dateString = formatDate(date);
+              const selected = selectedDate === dateString;
               return (
                 <Pressable
-                  key={minute}
-                  style={[styles.minuteChip, selected && styles.chipSelected]}
-                  onPress={() => setStartMinute(minute)}
+                  key={dateString}
+                  style={[styles.dateChip, selected && styles.chipSelected]}
+                  onPress={() => setSelectedDate(dateString)}
                 >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {minute.toString().padStart(2, "0")}분
+                  <Text
+                    style={[
+                      styles.dateChipText,
+                      selected && styles.chipTextSelected,
+                    ]}
+                  >
+                    {DAYS[index]} {date.getDate()}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-        </View>
 
-        {/* 종료 시간 */}
-        <Text style={styles.sectionLabel}>종료</Text>
-        <View style={styles.timeRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {HOURS.map((hour) => {
-              const selected = endHour === hour;
-              return (
-                <Pressable
-                  key={hour}
-                  style={[styles.timeChip, selected && styles.chipSelected]}
-                  onPress={() => setEndHour(hour)}
-                >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {hour}시
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <View style={styles.minuteGroup}>
-            {MINUTES.map((minute) => {
-              const selected = endMinute === minute;
-              return (
-                <Pressable
-                  key={minute}
-                  style={[styles.minuteChip, selected && styles.chipSelected]}
-                  onPress={() => setEndMinute(minute)}
-                >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {minute.toString().padStart(2, "0")}분
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <Text style={styles.sectionLabel}>시간</Text>
+          <View style={styles.timeSummary}>
+            <Pressable
+              style={styles.timeSummaryButton}
+              onPress={() =>
+                setExpandedTimeField(
+                  expandedTimeField === "start" ? null : "start",
+                )
+              }
+            >
+              <Text style={styles.timeSummaryText}>
+                {formatTime(startHour, startMinute)}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={22} color="#333333" />
+            </Pressable>
+            <MaterialCommunityIcons name="arrow-right" size={26} color="#111111" />
+            <Pressable
+              style={styles.timeSummaryButton}
+              onPress={() =>
+                setExpandedTimeField(expandedTimeField === "end" ? null : "end")
+              }
+            >
+              <Text style={styles.timeSummaryText}>
+                {formatTime(endHour, endMinute)}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={22} color="#333333" />
+            </Pressable>
           </View>
-        </View>
 
-        {/* 공개여부 설정 */}
-        <Text style={styles.sectionLabel}>노출도 설정</Text>
-        <View style={styles.row}>
-          {VISIBILITY_LEVEL.map((opt) => {
-            const selected = sharingMode === opt.visibility;
-            return (
-              <Pressable
-                key={opt.label}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => setSharingMode(opt.visibility)}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+          {expandedTimeField && (
+            <View style={styles.timePanel}>
+              <Text style={styles.inlineLabel}>
+                {expandedTimeField === "start" ? "시작 시간" : "종료 시간"}
+              </Text>
+              <View style={styles.timeChipGrid}>
+                {HOURS.map((hour) => {
+                  const selected = timeOptions.hour === hour;
+                  return (
+                    <Pressable
+                      key={hour}
+                      style={[styles.timeChip, selected && styles.chipSelected]}
+                      onPress={() => timeOptions.setHour(hour)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {hour}시
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.minuteGroup}>
+                {MINUTES.map((minute) => {
+                  const selected = timeOptions.minute === minute;
+                  return (
+                    <Pressable
+                      key={minute}
+                      style={[styles.minuteChip, selected && styles.chipSelected]}
+                      onPress={() => timeOptions.setMinute(minute)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {minute.toString().padStart(2, "0")}분
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
 
-        {/* 반복 */}
-        <Text style={styles.sectionLabel}>반복</Text>
-        <View style={styles.row}>
-          {RECURRENCE_OPTIONS.map((opt) => {
-            const selected = recurrenceRule === opt.rule;
-            return (
-              <Pressable
-                key={opt.label}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => setRecurrenceRule(opt.rule)}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+          {target.type === "local" && (
+            <>
+              <Text style={styles.sectionLabel}>노출도 설정</Text>
+              <View style={styles.row}>
+                {VISIBILITY_LEVEL.map((opt) => {
+                  const selected = sharingMode === opt.visibility;
+                  return (
+                    <Pressable
+                      key={opt.label}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => setSharingMode(opt.visibility)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
-        {/* 삭제 (편집 모드만) */}
-        {onDelete && (
-          <Pressable style={styles.deleteButton} onPress={onDelete}>
-            <Text style={styles.deleteButtonText}>일정 삭제</Text>
+              <Text style={styles.sectionLabel}>반복</Text>
+              <View style={styles.row}>
+                {RECURRENCE_OPTIONS.map((opt) => {
+                  const selected = recurrenceRule === opt.rule;
+                  return (
+                    <Pressable
+                      key={opt.label}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => setRecurrenceRule(opt.rule)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          {onDelete && (
+            <Pressable style={styles.deleteButton} onPress={onDelete}>
+              <Text style={styles.deleteButtonText}>일정 삭제</Text>
+            </Pressable>
+          )}
+        </ScrollView>
+
+        <View style={[styles.footer, { paddingBottom: 16 + insets.bottom }]}>
+          <Pressable style={styles.saveButton} onPress={handleSubmit}>
+            <Text style={styles.saveButtonText}>{submitLabel}</Text>
           </Pressable>
-        )}
-
-        <View style={{ height: 60 }} />
-      </ScrollView>
+        </View>
+      </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 20,
   },
-  headerBtn: {
-    paddingHorizontal: 4,
-    paddingVertical: 6,
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 24,
   },
-  headerBtnText: {
-    fontSize: 16,
-    color: "#666",
-  },
-  headerBtnPrimary: {
-    fontWeight: "700",
-    color: "#111",
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111111",
   },
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#888",
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#858585",
     marginTop: 20,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    marginBottom: 10,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 10,
-    padding: 12,
+    borderColor: "#DCDCDC",
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     fontSize: 16,
-    color: "#111",
+    color: "#111111",
     backgroundColor: "#FAFAFA",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 20,
+  },
+  iconButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
   },
   row: {
     flexDirection: "row",
@@ -366,68 +524,153 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
     borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 20,
+    borderColor: "#DCDCDC",
+    borderRadius: 999,
     paddingVertical: 7,
-    paddingHorizontal: 13,
+    paddingHorizontal: 12,
     backgroundColor: "#FAFAFA",
+    minHeight: 36,
+    maxWidth: 190,
   },
   chipSelected: {
     backgroundColor: "#111",
     borderColor: "#111",
   },
   chipDisabled: {
-    opacity: 0.45,
+    opacity: 0.42,
   },
   chipText: {
     fontSize: 14,
-    color: "#333",
+    color: "#333333",
+    fontWeight: "700",
   },
   chipTextSelected: {
     color: "#FFF",
-    fontWeight: "600",
+    fontWeight: "800",
   },
   colorDot: {
     width: 9,
     height: 9,
     borderRadius: 5,
   },
-  timeRow: {
+  dateGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  dateChip: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#DCDCDC",
+    borderRadius: 999,
+    backgroundColor: "#FAFAFA",
+    height: 36,
+    minWidth: 50,
+    paddingHorizontal: 10,
+  },
+  dateChipText: {
+    fontSize: 14,
+    color: "#333333",
+    fontWeight: "700",
+  },
+  timeSummary: {
+    minHeight: 56,
+    borderWidth: 1,
+    borderColor: "#DCDCDC",
+    borderRadius: 18,
+    backgroundColor: "#FAFAFA",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  timeSummaryButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    borderRadius: 23,
+    paddingHorizontal: 4,
+  },
+  timeSummaryText: {
+    fontSize: 19,
+    color: "#111111",
+    fontWeight: "800",
+  },
+  timePanel: {
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 10,
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+  },
+  inlineLabel: {
+    fontSize: 14,
+    color: "#858585",
+    fontWeight: "800",
+  },
+  timeChipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   timeChip: {
     borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 20,
+    borderColor: "#DCDCDC",
+    borderRadius: 999,
     paddingVertical: 7,
     paddingHorizontal: 12,
-    marginRight: 6,
     backgroundColor: "#FAFAFA",
   },
   minuteGroup: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 6,
   },
   minuteChip: {
     borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 20,
+    borderColor: "#DCDCDC",
+    borderRadius: 999,
     paddingVertical: 7,
     paddingHorizontal: 12,
     backgroundColor: "#FAFAFA",
   },
   deleteButton: {
-    marginTop: 32,
-    backgroundColor: "#D9534F",
-    padding: 15,
-    borderRadius: 12,
+    marginTop: 24,
+    borderWidth: 1,
+    borderColor: "#D9534F",
+    backgroundColor: "#FFFFFF",
+    padding: 14,
+    borderRadius: 999,
     alignItems: "center",
   },
   deleteButtonText: {
-    color: "#FFF",
+    color: "#D9534F",
     fontSize: 16,
     fontWeight: "600",
+  },
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
+  },
+  saveButton: {
+    minHeight: 50,
+    borderRadius: 18,
+    backgroundColor: "#3BAF7A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
   },
 });

@@ -1,8 +1,15 @@
-# Welcome to your Expo app 👋
+# Link 📎
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+2026 고려대학교 정보대학 NE:XT 공모전 출품작입니다.
 
-## Get started
+## 프로젝트 소개
+"
+
+ 해당 프로젝트는 React Native 기반의 안드로이드/iOS 일정 공유 애플리케이션이다. 기본적인 캘린더 기능을 제공하면서도 일정을 손쉽게 공유하고 다수의 일정을 동시에 비교하는 기능에 중점을 두어 설계하였다. 앱에서는 ‘라벨’을 이용해 일정을 그룹화하여 관리할 수 있으며 Google 캘린더와 연동 기능을 지원하여 사용자들이 기존에 사용하던 일정 관리 도구를 그대로 이용할 수 있도록 제작하였다. 일정 공유는 QR을 이용한 일회성 공유와 친구 시스템 기반의 상시 공유를 제작하였다. 공유는 공유 기간, 만료 기한, 공유 대상 라벨, 일정 공개 범위 등을 세부적으로 설정할 수 있도록 하였다. 공개, 비공개, 블라인드 등 프라이버시를 위한 일정 공개 범위도 설정 가능하다. 친구의 일정을 확인하거나 여러 사람들의 일정을 모아서 겹쳐볼 수 있다는 점에서, 모임 시간을 정하는 등 활용 가능성이 높을 것으로 예상된다.
+
+"
+
+## 개발 서버 실행
 
 1. Install dependencies
 
@@ -13,38 +20,29 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 2. Start the app
 
    ```bash
-   npx expo start
+   npx expo start --go
    ```
 
-In the output, you'll find options to open the app in a
+   이후 핸드폰에서 Expo Go 앱을 설치하고, 터미널에 표시되는 QR코드를 스캔하면 앱이 실행됩니다. https로 접속하면 웹으로도 접속할 수 있습니다.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## apk 추출
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+1. eas-cli 설치
+```
+npm install eas-cli
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+2. expo 로그인
+```
+eas login
+```
 
-## Learn more
+3. 클라우드 컴파일
+```
+eas build -p android --profile preview --clear-cache
+```
+이 명령어는 expo 클라우드에서 원격 컴파일을 실행합니다. 만약 로컬에서 컴파일하고자 한다면 `--local` 옵션을 추가하여 실행하면 됩니다.
 
-To learn more about developing your project with Expo, look at the following resources:
+## 기여자
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+인공지능학과 성민혁, 인공지능학과 천지원, 컴퓨터학과 윤민성, 컴퓨터학과 정현석

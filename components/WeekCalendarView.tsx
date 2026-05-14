@@ -40,6 +40,7 @@ export type WeekCalendarEvent = {
   source?: string;
   editable?: boolean;
   editEventId?: string;
+  deviceCalendarId?: string;
   layoutGroupId?: string;
   shareOverrideKey?: string;
   shareVisibility?: "visible" | "blind" | "invisible";
@@ -622,7 +623,7 @@ function formatHourLabel(hour: number) {
 }
 
 function getEventFill(color: string) {
-  return color || "#9FF4E2";
+  return color || "#DC143C";
 }
 
 const styles = StyleSheet.create({
