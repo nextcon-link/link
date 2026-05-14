@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import {
   ActivityIndicator,
   Alert,
@@ -32,7 +33,7 @@ export type SharedBundleSource = {
 
 export type GeneratedShareQr = {
   url: string;
-  qrMatrix: boolean[][];
+  qrImageUri: string;
   events: {
     title: string;
     startTime: number;
@@ -130,26 +131,6 @@ const SOURCE_DRAWER_CLOSED_Y =
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-function QrMatrix({ matrix }: { matrix: boolean[][] }) {
-  return (
-    <View style={styles.qrMatrix}>
-      {matrix.map((row, rowIndex) => (
-        <View key={rowIndex} style={styles.qrRow}>
-          {row.map((cell, colIndex) => (
-            <View
-              key={`${rowIndex}:${colIndex}`}
-              style={[
-                styles.qrCell,
-                cell ? styles.qrCellDark : styles.qrCellLight,
-              ]}
-            />
-          ))}
-        </View>
-      ))}
-    </View>
-  );
 }
 
 function formatExpiry(expiresAt: number | null | undefined) {
@@ -766,7 +747,11 @@ export default function SharedBundleViewer({
 
             {generatedQr && isQrVisible && (
               <>
-                <QrMatrix matrix={generatedQr.qrMatrix} />
+                <Image
+                  source={{ uri: generatedQr.qrImageUri }}
+                  style={styles.qrImage}
+                  contentFit="contain"
+                />
                 <Text style={styles.qrTitle}>{generatedQr.title}</Text>
                 <Text style={styles.qrSubtitle}>
                   {generatedQr.eventCount}개 일정 포함
@@ -1290,22 +1275,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  qrMatrix: {
+  qrImage: {
     width: "100%",
     aspectRatio: 1,
-    backgroundColor: "#FFF",
-  },
-  qrRow: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  qrCell: {
-    flex: 1,
-  },
-  qrCellDark: {
-    backgroundColor: "#000",
-  },
-  qrCellLight: {
     backgroundColor: "#FFF",
   },
   qrTitle: {

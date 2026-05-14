@@ -12,6 +12,7 @@ import {
 import {
   createSharedBundleWebUrl,
   decodeSharedBundlePayload,
+  encodeTextAsBase64,
   SHARE_PAYLOAD_VERSION,
   type SharedBundlePayload,
   type SharedBundlePayloadEvent,
@@ -71,30 +72,15 @@ function getShareOverrideKey(eventId: string, occurrenceStartTime: number) {
   return `${eventId}:${occurrenceStartTime}`;
 }
 
-function createQrMatrix(url: string) {
-  const qrCode = QRCode.create(url, {
+async function createQrImageUri(url: string) {
+  const svg = await QRCode.toString(url, {
+    type: "svg",
     errorCorrectionLevel: "M",
+    margin: 4,
+    width: 1024,
   });
-  const quietZone = 4;
-  const size = qrCode.modules.size + quietZone * 2;
 
-  return Array.from({ length: size }, (_, row) =>
-    Array.from({ length: size }, (_, col) => {
-      const qrRow = row - quietZone;
-      const qrCol = col - quietZone;
-
-      if (
-        qrRow < 0 ||
-        qrCol < 0 ||
-        qrRow >= qrCode.modules.size ||
-        qrCol >= qrCode.modules.size
-      ) {
-        return false;
-      }
-
-      return qrCode.modules.get(qrRow, qrCol) === 1;
-    }),
-  );
+  return `data:image/svg+xml;base64,${encodeTextAsBase64(svg)}`;
 }
 
 export async function createSharedBundleLink(input: {
@@ -200,7 +186,7 @@ export async function createSharedBundleLink(input: {
 
   return {
     url,
-    qrMatrix: createQrMatrix(url),
+    qrImageUri: await createQrImageUri(url),
     events: payloadEvents,
     eventCount: payloadEvents.length,
     expiresAt: input.expiresAt,
