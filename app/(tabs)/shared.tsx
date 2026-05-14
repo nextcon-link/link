@@ -288,6 +288,7 @@ export default function SharedScreen() {
   const [shareSettings, setShareSettings] = useState<ShareQrSettings>(
     DEFAULT_SHARE_SETTINGS,
   );
+  const [didInitShareTitle, setDidInitShareTitle] = useState(false);
   const [didInitShareLabels, setDidInitShareLabels] = useState(false);
   const [sharePreviewWeekKey, setSharePreviewWeekKey] = useState(weekKey);
   const [deviceCalendars, setDeviceCalendars] = useState<DeviceCalendarOption[]>([]);
@@ -302,15 +303,17 @@ export default function SharedScreen() {
     () => getShareRange(shareSettings, weekKey),
     [shareSettings, weekKey],
   );
-  const shareSettingsError =
+  const sharePreviewError =
     shareRange.error ??
     getExpiryError(shareSettings) ??
-    (!shareSettings.bundleTitle.trim()
-      ? "일정 덩어리 이름을 입력하세요."
-      : null) ??
     (shareSettings.selectedLabelIds.length === 0 && !shareSettings.includeUnlabeled
       ? "공유할 라벨을 하나 이상 선택하세요."
       : null);
+  const shareSettingsError =
+    (!shareSettings.bundleTitle.trim()
+      ? "일정 덩어리 이름을 입력하세요."
+      : null) ??
+    sharePreviewError;
 
   useEffect(() => {
     seedDemoSharedBundles();
@@ -371,13 +374,16 @@ export default function SharedScreen() {
   }, [shareRange.error, shareRange.startDate]);
 
   useEffect(() => {
-    if (!user || shareSettings.bundleTitle.trim()) return;
+    if (!user || didInitShareTitle) return;
 
     setShareSettings((current) => ({
       ...current,
-      bundleTitle: `${getOwnerName(user)}의 ${weekKey} 일정`,
+      bundleTitle: current.bundleTitle.trim()
+        ? current.bundleTitle
+        : `${getOwnerName(user)}의 ${weekKey} 일정`,
     }));
-  }, [shareSettings.bundleTitle, user, weekKey]);
+    setDidInitShareTitle(true);
+  }, [didInitShareTitle, user, weekKey]);
 
   const { data: bundleList = [] } = useLiveQuery(
     db
@@ -621,7 +627,7 @@ export default function SharedScreen() {
   );
 
   const sharePreviewEvents = useMemo<WeekCalendarEvent[]>(() => {
-    if (shareSettingsError) return [];
+    if (sharePreviewError) return [];
 
     const selectedLabels = new Set(shareSettings.selectedLabelIds);
     const localPreviewEvents = shareRows
@@ -708,7 +714,7 @@ export default function SharedScreen() {
     shareSettings.eventVisibilityOverrides,
     shareSettings.includeUnlabeled,
     shareSettings.selectedLabelIds,
-    shareSettingsError,
+    sharePreviewError,
   ]);
 
   const shareIncludedEventCount = useMemo(
@@ -720,17 +726,17 @@ export default function SharedScreen() {
   );
 
   const canSharePreviewPreviousWeek = useMemo(() => {
-    if (shareSettingsError) return false;
+    if (sharePreviewError) return false;
     return dayjs(sharePreviewWeekKey).isAfter(dayjs(getWeekKey(shareRange.startDate)));
-  }, [sharePreviewWeekKey, shareRange.startDate, shareSettingsError]);
+  }, [sharePreviewWeekKey, shareRange.startDate, sharePreviewError]);
 
   const canSharePreviewNextWeek = useMemo(() => {
-    if (shareSettingsError) return false;
+    if (sharePreviewError) return false;
     const nextWeekStart = dayjs(addWeeks(sharePreviewWeekKey, 1))
       .startOf("day")
       .valueOf();
     return nextWeekStart <= shareRange.end;
-  }, [sharePreviewWeekKey, shareRange.end, shareSettingsError]);
+  }, [sharePreviewWeekKey, shareRange.end, sharePreviewError]);
 
   const sources = useMemo<SharedBundleSource[]>(
     () => [

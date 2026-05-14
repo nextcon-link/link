@@ -112,49 +112,59 @@ export default function LabelsScreen() {
         </Pressable>
 
         {/* ── 라벨 추가 폼 ───────────────────────────────── */}
-        <Text style={styles.sectionLabel}>새 라벨</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="예: 수업, 개인, 동아리"
-          placeholderTextColor="#999"
-        />
-        <Text style={styles.sectionLabel}>색상 선택</Text>
-        <View style={styles.colorRow}>
-          {PRESET_COLORS.map((c) => (
-            <Pressable
-              key={c}
-              accessibilityLabel={`${c} 색상 선택`}
-              style={[
-                styles.colorSwatch,
-                { backgroundColor: c },
-                color === c && styles.colorSwatchSelected,
-              ]}
-              onPress={() => setColor(c)}
-            />
-          ))}
-        </View>
-        <Text style={styles.sectionLabel}>노출도 설정</Text>
-        <View style={styles.row}>
-          {VISIBILITY_LEVEL.map((opt) => {
-            const selected = sharingMode === opt.visibility;
-            return (
+        <View style={styles.createSection}>
+          <View style={styles.createSectionHeader}>
+            <View style={styles.createSectionIcon}>
+              <MaterialCommunityIcons name="tag-plus-outline" size={21} color="#111111" />
+            </View>
+            <Text style={styles.createSectionTitle}>새 라벨</Text>
+          </View>
+          <View style={styles.createSectionDivider} />
+
+          <Text style={[styles.sectionLabel, styles.createFieldLabel]}>이름</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="예: 수업, 개인, 동아리"
+            placeholderTextColor="#999"
+          />
+          <Text style={styles.sectionLabel}>색상 선택</Text>
+          <View style={styles.colorRow}>
+            {PRESET_COLORS.map((c) => (
               <Pressable
-                key={opt.label}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => setSharingMode(opt.visibility)}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+                key={c}
+                accessibilityLabel={`${c} 색상 선택`}
+                style={[
+                  styles.colorSwatch,
+                  { backgroundColor: c },
+                  color === c && styles.colorSwatchSelected,
+                ]}
+                onPress={() => setColor(c)}
+              />
+            ))}
+          </View>
+          <Text style={styles.sectionLabel}>노출도 설정</Text>
+          <View style={styles.row}>
+            {VISIBILITY_LEVEL.map((opt) => {
+              const selected = sharingMode === opt.visibility;
+              return (
+                <Pressable
+                  key={opt.label}
+                  style={[styles.chip, selected && styles.chipSelected]}
+                  onPress={() => setSharingMode(opt.visibility)}
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable style={styles.createButton} onPress={handleCreate}>
+            <Text style={styles.createButtonText}>라벨 만들기</Text>
+          </Pressable>
         </View>
-        <Pressable style={styles.createButton} onPress={handleCreate}>
-          <Text style={styles.createButtonText}>라벨 만들기</Text>
-        </Pressable>
 
         {/* ── 라벨 목록 ──────────────────────────────────── */}
         <Text style={styles.sectionTitle}>내 라벨</Text>
@@ -302,6 +312,49 @@ const styles = StyleSheet.create({
     color: "#FFF",
     fontSize: 16,
     fontWeight: "800",
+  },
+  createSection: {
+    borderWidth: 1,
+    borderColor: "#D9D9D9",
+    borderRadius: 14,
+    backgroundColor: "#F7F8FA",
+    padding: 14,
+    marginTop: 6,
+    marginBottom: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  createSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  createSectionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E4E4E4",
+  },
+  createSectionTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#111111",
+  },
+  createSectionDivider: {
+    height: 1,
+    backgroundColor: "#E4E4E4",
+    marginTop: 12,
+    marginBottom: 2,
+  },
+  createFieldLabel: {
+    marginTop: 12,
   },
   sectionTitle: {
     marginTop: 30,
